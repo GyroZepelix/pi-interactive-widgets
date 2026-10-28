@@ -12,11 +12,12 @@ The extension enforces the full run-time and lifecycle policy, revives closed an
 
 ## Why this slice exists now
 
-The policy, revive, scaling, and recovery behaviors act on the integrated component from 02.01, and the whole-plan e2e, perf, and disk runs need the complete extension.
+The policy, revive, scaling, and recovery behaviors act on the integrated component from 02.03 (which replaced frozen 02.01 under revision R001), and the whole-plan e2e, perf, and disk runs need the complete extension.
 
 ## Relevant context
 
-- RQ06 and PD06: at most one live widget per session; hover or click makes a widget live; making another widget live freezes the previous one immediately; unfocused live widgets freeze 10 s after the last pointer activity; focused widgets freeze after 5 min without input.
+- RQ06, PD06, and PD09 (revision R001): at most one live widget per session; a press wakes a frozen widget and is delivered to the page; hover wakes only where the terminal reports motion; making another widget live freezes the previous one immediately; release freezes immediately; the 10 s idle timer runs from creation and from the last hover move; focused widgets freeze after 5 min without input. 02.03 delivers click-to-wake, release freezing, and the 10 s timer; this slice adds the focused 5 min timer and proves the full AC06 set.
+- Open discovery from T01: freeze and thaw are proven for one page; check whether two pages in one chrome-headless-shell share a window id (`Browser.getWindowForTarget`) before relying on one page staying minimized while another is live.
 - RQ07: at most 5 retained pages per session (least recently used frozen page closes first); 30 min frozen closes; browser closes when no pages remain; revive on click from persisted tool arguments (inline) or the current file (path); missing or unreadable file shows `source file missing: <path>` with the still when available; after a restart or resume each widget row shows a placeholder line until clicked (`session_start` reasons include `resume` and `startup`).
 - RQ12: on width changes, send scaled frames and scale mouse mapping; widening restores full size.
 - RQ13: after Pi's redraw on a resize, re-send retained RAM stills; register `/widgets-refresh`; in plain Ghostty also re-send after Pi's full redraws (first render and size changes).
@@ -28,7 +29,9 @@ The policy, revive, scaling, and recovery behaviors act on the integrated compon
 
 - No JS state persistence across close, resume, or revive; no disk-persisted stills.
 - No off-screen detection through Pi's private layout.
-- Visual and manual checks (AC13 reattach, AC14 plain Ghostty, scaled rendering) need the user; ask for confirmation and record it.
+- Visual and manual checks (AC13 reattach, AC14 plain Ghostty including hover-to-wake, scaled rendering) need the user; ask for confirmation and record it.
+- Never toggle mouse modes to obtain hover (plan Out of scope).
+- The README must cover click-to-interact under tmux, the advice against hover-dependent UI, and the IPv6 limit recorded in `./index.md` Discoveries (IPv6-literal `allowHosts` entries work only with `network.open: true`; use a hostname such as `localhost` in default mode).
 - Dependencies limited to PD01.
 
 ## Expected source and test areas

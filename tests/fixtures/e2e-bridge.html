@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e bridge</title>
+<style>button{position:absolute;top:8px;bottom:8px;width:calc(50% - 12px);font:16px system-ui}#send{left:8px}#submit{right:8px}</style>
+</head><body>
+<button id="send">pi.send</button><button id="submit">pi.submit</button>
+<script>
+// E2E: a submit without user activation must be rejected; the buttons send and submit after real clicks.
+window.__early = pi.submit({ early: true });
+setTimeout(() => { window.__late = pi.submit({ late: true }); }, 0);
+document.getElementById("send").addEventListener("click", () => pi.send({ clicked: "send" }));
+document.getElementById("submit").addEventListener("click", () => pi.submit({ clicked: "submit" }));
+</script></body></html>

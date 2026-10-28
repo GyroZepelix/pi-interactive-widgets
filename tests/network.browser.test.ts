@@ -110,6 +110,20 @@ describe("open policy", () => {
 		);
 	});
 
+	it("open mode with a listed local host blocks a WebSocket to an unlisted local address (RQ09 correction)", async () => {
+		const w = await networkWidget({ open: true, allowHosts: [`127.0.0.1:${server.port}`] });
+		const ws = (url: string): Promise<string> => w.page.evaluate(`window.__ws(${JSON.stringify(url)})`) as Promise<string>;
+		assert.equal(await ws(`ws://127.0.0.1:${server.port}/ws-listed`), "open", "listed host takes WebSockets");
+		assert.equal(await ws(`ws://localhost:${server.port}/ws-unlisted`), "error");
+		assert.ok(await until(() => blockedFor(w, "/ws-unlisted").length > 0), "unlisted WebSocket reported");
+		assert.deepEqual(blockedFor(w, "/ws-unlisted"), ["blocked by CSP connect-src"]);
+		assert.deepEqual(
+			server.hits.filter((h) => h.method === "ws").map((h) => h.url),
+			["ws /ws-listed"],
+		);
+		await w.close();
+	});
+
 	it("leaves no process started by the tests", async () => {
 		assert.equal(host.pid, undefined);
 		assert.deepEqual(await waitGone([...seenPids]), []);

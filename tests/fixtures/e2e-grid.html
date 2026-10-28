@@ -1,0 +1,14 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e grid</title>
+<style>
+#grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(3,1fr)}
+#grid div{border:1px solid #45475a}
+#grid div.hit{background:#a6e3a1}
+</style></head><body>
+<div id="grid"></div>
+<script>
+// E2E: 6x3 targets; every mousedown reports its target through pi.send so the test reads it from the dev log.
+const grid = document.getElementById("grid");
+for (let i = 0; i < 18; i++) { const d = document.createElement("div"); d.dataset.i = String(i); grid.appendChild(d); }
+grid.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-i]"); const i = t ? Number(t.dataset.i) : -1; t && t.classList.toggle("hit"); pi.send({ hit: i }); });
+</script></body></html>

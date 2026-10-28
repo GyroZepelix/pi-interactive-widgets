@@ -4,8 +4,8 @@ Plan: `../plan.md`
 Mode: sliced
 Assurance: medium - personal single-user setup, reversible local extension, KISS preference (user override, D4)
 Review tier: medium - scoped checks per slice; one focused review at each segment end; one final contract-quality review over the whole change
-Current: `02.01`
-Expected implementation sessions: 4
+Current: `02.02`
+Expected implementation sessions: 5 (01.01, 01.02, frozen 02.01, 02.03, 02.02); 1 remains (02.02)
 Implementation starting checkpoint: `a419a0d` (HEAD at 01.01 start; 01.01 changes uncommitted)
 
 ## Shared objective
@@ -26,6 +26,7 @@ Ship `pi-interactive-widgets`: the agent calls `show_widget` with `html` or `pat
 - PD01: the dependency set (`puppeteer-core`; dev `typescript`, `tsx`, `@types/node`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) is approved; anything else needs approval.
 - PD03: the tool is `show_widget`; it is persisted in sessions, so do not rename it.
 - PD06: at most one live widget per session.
+- PD09 (revision R001): a press wakes a frozen widget and is delivered to the page; hover wakes only where the terminal reports motion (not under tmux); release freezes immediately; the 10 s timer runs from creation and from the last hover move; focused widgets freeze after 5 min without input; hint text follows Pi's multiplexer condition. Never toggle mouse modes to obtain hover.
 - D14 and D15: one full-resolution PNG screencast per live widget, ack-paced to at most 10 fps; one lazily launched chrome-headless-shell per Pi session with `pipe: true` and without puppeteer's three anti-throttling flags.
 - RQ10: widgets load from a synthetic per-widget `https` origin through CDP Fetch interception; the loopback-server fallback is pre-approved only if the U1 spike fails, and must be recorded in the plan's Decision Log.
 - Tests that touch the terminal need a visible tmux pane; hidden windows drop passthrough.
@@ -62,15 +63,23 @@ Boundary T01 -> T02: Pi integration must not start until the pipeline passes out
 ### T02: Pi extension
 
 Depends on: T01
-Segment starting checkpoint: unrecorded
+Segment starting checkpoint: `8f8396c`
 Segment acceptance: AC01-AC16 in `../plan.md`.
 Segment gate: whole-plan acceptance plus one focused final-segment review and one final contract-quality review.
 
-- [ ] 02.01: Pi integration core (packet: `./02-01-pi-integration.md`)
+- [x] 02.03: Pi integration core with click-to-wake, replacing frozen 02.01 (packet: `./02-03-pi-integration-click-wake.md`)
 
-Boundary 02.01 -> 02.02: lifecycle policy, revive, scaling, and recovery act on the integrated component, and their e2e and CPU/disk acceptance runs are slow and need a working integration to debug against. Comparable PoC work needed one very long session (raw handoff provenance), so a single session would leave no headroom for defects those runs reveal.
+Boundary 02.03 -> 02.02: lifecycle policy, revive, scaling, and recovery act on the integrated component, and their e2e and CPU/disk acceptance runs are slow and need a working integration to debug against. Comparable PoC work needed one very long session (raw handoff provenance), so a single session would leave no headroom for defects those runs reveal.
 
 - [ ] 02.02: Lifecycle, recovery, and whole-plan acceptance (packet: `./02-02-lifecycle-acceptance.md`)
+
+Slice IDs are not numeric order: 02.03 runs before 02.02 because it replaces frozen 02.01 (revision R001).
+
+## Historical packets
+
+Not executable. Preserved byte-for-byte as attempt history.
+
+- 02.01: Pi integration core, frozen after Attempt 1 and Interruption 1 (hover blocker); replaced by 02.03 under revision R001 (plan PD09, `../refinements/R001.md`). Its uncommitted Attempt 1 work is the starting point of 02.03. (packet: `./02-01-pi-integration.md`)
 
 ## Discoveries and blockers
 
@@ -79,4 +88,9 @@ Boundary 02.01 -> 02.02: lifecycle policy, revive, scaling, and recovery act on 
 - 01.01 residual: CDP Fetch does not see WebSockets. In open mode an unlisted `ws://` to a local address is stopped by Chrome LNA (or mixed-content rules) but is not reported in `blocked`; default mode reports it through the CSP `connect-src` violation. Reporting WebSocket blocks in open mode is not implemented.
 - 01.02 U4 (passed, user-confirmed): kitty Unicode placeholders through tmux 3.6b render correctly in Ghostty 1.4.0 at full size (90x18) and after a scaled send (45x9). Input 18/18 and 60/60; AC01 0.1% frozen, 0 frames unchanged; AC02 marginal median 34.0% (absolute 43.2% including other sessions' tmux and Ghostty load; judged on marginal cost per Gamemaster decision). Evidence: `./01-02-kitty-transport-harness.md`.
 - T01 segment review (non-blocking): a bracketed IPv6 entry such as `[::1]` in `network.allowHosts` never matches `URL.hostname` (`::1`) in `src/policy.ts`, yet still triggers the origin-wide LNA grant; fix by stripping brackets before comparing. With a listed local host in open mode, the origin-wide LNA grant plus `ws:`/`wss:` in `connect-src` means an unlisted local `ws://` is not blocked (CDP Fetch does not see WebSockets); default mode still blocks it.
+- 02.01 RQ09 correction (1), approved by Gamemaster: the bracket mismatch does not reproduce (WHATWG `URL.hostname` keeps `[::1]`, so listed IPv6 entries match). The real limit is CSP: host-source grammar cannot express IPv6 literals, so a listed `[::1]:PORT` works only with `network.open: true` and is blocked by `connect-src` in default mode. No matching change; regression test in `tests/policy.test.ts`. The 02.02 README must state: IPv6-literal allowHosts entries work only in open mode; use a hostname such as `localhost` in default mode.
+- 02.01 RQ09 correction (2): reproduced and fixed. In open mode with a listed local host, `connect-src` now allows WebSockets only to listed hosts, so unlisted local `ws://` is blocked and reported (`blocked by CSP connect-src`); public WebSocket hosts must then be listed too. Evidence: `tests/network.browser.test.ts` WebSocket test.
+- 02.01 blocker (open): under tmux Pi 1.4.0 enables only button-motion mouse tracking (`pi-tui/dist/tui-alt-screen.js` L184-L193: `?1002h` without `?1003h` when `TMUX`, `ZELLIJ`, or `STY` is set or `TERM` starts with `tmux`/`screen`; tmux pane flags `mouse_all_flag=0 mouse_button_flag=1`). Hover never reaches the component, so RQ06/AC06 hover-to-live cannot be met without toggling mouse modes (forbidden by RQ05). User visual check: hover did not wake a frozen widget, click did. Plain Ghostty without tmux gets `?1003h` (source only). Awaiting user decision; see `./02-01-pi-integration.md` Attempt 1.
 - For 02.02: freeze and thaw are proven for one page; whether two pages in one chrome-headless-shell share a window id (`Browser.getWindowForTarget`) is untested and matters for keeping one page minimized while another is live.
+- 02.03 (passed, user-confirmed click-to-wake and AC11): a press arriving right after a release could reach a page whose freeze was still queued and leave it frozen; `pointer()` now always queues the idempotent wake for presses (unit test). Thaw to first frame measured 2-16 ms. Evidence: `./02-03-pi-integration-click-wake.md` Completion evidence.
+- Revision R001 (applied, plan PD09): the 02.01 hover blocker is resolved by click-to-wake under tmux, hover-to-wake only where the terminal reports motion, and freeze on release; 02.01 is frozen as history and 02.03 replaces it. See `../refinements/R001.md`.

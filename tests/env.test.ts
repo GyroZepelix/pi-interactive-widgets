@@ -1,7 +1,7 @@
 // Environment detection unit tests (RQ14); tmux is replaced by a fake query.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssCellSize, detectEnvironment, type TmuxQuery, tmuxCellSize } from "../src/env.js";
+import { cssCellSize, detectEnvironment, pointerMotionReported, type TmuxQuery, tmuxCellSize } from "../src/env.js";
 
 const fake =
 	(answers: Record<string, string>): TmuxQuery =>
@@ -58,5 +58,20 @@ describe("cell size", () => {
 
 	it("converts to CSS pixels at the browser DPR", () => {
 		assert.deepEqual(cssCellSize({ width: 16, height: 34 }, 2), { width: 8, height: 17 });
+	});
+});
+
+describe("pointerMotionReported (Pi's multiplexer condition, PD09)", () => {
+	it("is false under tmux, Zellij, or screen, including empty markers and TERM prefixes", () => {
+		assert.equal(pointerMotionReported({ TMUX }), false);
+		assert.equal(pointerMotionReported({ TMUX: "" }), false);
+		assert.equal(pointerMotionReported({ ZELLIJ: "0" }), false);
+		assert.equal(pointerMotionReported({ STY: "123.pts" }), false);
+		assert.equal(pointerMotionReported({ TERM: "tmux-256color" }), false);
+		assert.equal(pointerMotionReported({ TERM: "Screen.xterm-256color" }), false);
+	});
+	it("is true in a plain terminal", () => {
+		assert.equal(pointerMotionReported({ TERM: "xterm-ghostty", TERM_PROGRAM: "ghostty" }), true);
+		assert.equal(pointerMotionReported({}), true);
 	});
 });

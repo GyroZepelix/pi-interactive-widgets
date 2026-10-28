@@ -37,9 +37,15 @@ function sources(host: string): string {
 	return [`https://${host}`, `http://${host}`, `wss://${host}`, `ws://${host}`].join(" ");
 }
 
+/** True when allowHosts lists a local host; the page then lifts Chrome's Local Network Access check for its origin. */
+export function listsLocalHost(entries: readonly string[]): boolean {
+	return normalizeAllowHosts(entries).some((e) => isLocalHost(e.replace(/:\d+$/, "").replace(/^\*\./, "x.")));
+}
+
 /** Builds the Content-Security-Policy header sent with every widget-origin response. */
 export function buildCsp(policy: NetworkPolicy): string {
-	const extra = normalizeAllowHosts(policy.allowHosts).map(sources).join(" ");
+	const hosts = normalizeAllowHosts(policy.allowHosts);
+	const extra = hosts.map(sources).join(" ");
 	const cdn = CDN_HOSTS.map((h) => `https://${h}`).join(" ");
 	const fixed = ["frame-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'none'", "worker-src 'self' blob:"];
 	if (policy.open) {
@@ -51,7 +57,9 @@ export function buildCsp(policy: NetworkPolicy): string {
 			`font-src ${any}`,
 			`img-src ${any}`,
 			`media-src ${any}`,
-			`connect-src 'self' https: http: wss: ws: data: blob:`,
+			// CDP Fetch does not see WebSockets. Once a listed local host lifts Chrome's LNA check for the origin,
+			// WebSockets go only to listed hosts so unlisted local addresses stay blocked.
+			`connect-src 'self' https: http: ${listsLocalHost(hosts) ? hosts.map((h) => `wss://${h} ws://${h}`).join(" ") : "wss: ws:"} data: blob:`,
 			...fixed,
 		].join("; ");
 	}

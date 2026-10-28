@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildCsp, CDN_HOSTS, checkRequest, hostListed, isLocalHost, normalizeAllowHosts } from "../src/policy.js";
+import { buildCsp, CDN_HOSTS, checkRequest, hostListed, isLocalHost, listsLocalHost, normalizeAllowHosts } from "../src/policy.js";
 
 describe("isLocalHost", () => {
 	for (const h of [
@@ -54,6 +54,22 @@ describe("allowHosts", () => {
 		assert.equal(hostListed(["127.0.0.1:5173"], new URL("http://127.0.0.1:5174/")), false);
 		assert.equal(hostListed(["localhost"], new URL("http://localhost:3000/")), true);
 	});
+	it("matches bracketed IPv6 entries, because WHATWG URL.hostname keeps the brackets", () => {
+		assert.equal(new URL("http://[::1]:8080/").hostname, "[::1]");
+		assert.equal(hostListed(["[::1]"], new URL("http://[::1]/")), true);
+		assert.equal(hostListed(["[::1]:8080"], new URL("ws://[::1]:8080/")), true);
+		assert.equal(hostListed(["[::1]:8080"], new URL("http://[::1]:8081/")), false);
+		assert.deepEqual(checkRequest("http://[::1]:8080/x", { open: true, allowHosts: ["[::1]:8080"] }), { allow: true });
+		assert.equal(checkRequest("http://[::2]:8080/x", { open: true, allowHosts: ["[::1]:8080"] }).allow, true, "public IPv6 in open mode");
+		assert.equal(checkRequest("http://[fd00::1]:8080/x", { open: true, allowHosts: ["[::1]:8080"] }).allow, false);
+	});
+	it("detects listed local hosts", () => {
+		assert.equal(listsLocalHost(["127.0.0.1:5173"]), true);
+		assert.equal(listsLocalHost(["[::1]"]), true);
+		assert.equal(listsLocalHost(["*.local"]), true);
+		assert.equal(listsLocalHost(["api.example.com", "*.example.com"]), false);
+		assert.equal(listsLocalHost([]), false);
+	});
 });
 
 describe("checkRequest", () => {
@@ -101,5 +117,12 @@ describe("buildCsp", () => {
 		assert.match(directive(csp, "connect-src"), /https:/);
 		assert.equal(directive(csp, "form-action"), "form-action 'none'");
 		assert.equal(directive(csp, "object-src"), "object-src 'none'");
+		assert.match(directive(csp, "connect-src"), / wss: ws: /);
+		assert.match(directive(buildCsp({ open: true, allowHosts: ["api.example.com"] }), "connect-src"), / wss: ws: /);
+	});
+	it("open mode with a listed local host limits WebSockets to listed hosts", () => {
+		const connect = directive(buildCsp({ open: true, allowHosts: ["127.0.0.1:5173", "api.example.com"] }), "connect-src");
+		assert.equal(connect, "connect-src 'self' https: http: wss://127.0.0.1:5173 ws://127.0.0.1:5173 wss://api.example.com ws://api.example.com data: blob:");
+		assert.doesNotMatch(connect, / wss: | ws: /);
 	});
 });

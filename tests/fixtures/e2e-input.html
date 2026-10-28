@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e input</title>
+<style>input{position:absolute;inset:8px;width:calc(100% - 16px);height:calc(100% - 16px);font:20px ui-monospace,monospace;background:#313244;color:#cdd6f4;border:1px solid #585b70}</style>
+</head><body>
+<input id="in" autocomplete="off">
+<script>
+// E2E: every input event reports the field value through pi.send.
+const input = document.getElementById("in");
+input.addEventListener("input", () => pi.send({ value: input.value }));
+</script></body></html>

@@ -1,5 +1,6 @@
 // Shared helpers for browser tests (no frame is ever written to disk).
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -54,7 +55,10 @@ export interface LocalServer {
 	close(): Promise<void>;
 }
 
-/** Loopback HTTP server that records every request and answers with permissive CORS (no local-network opt-in header). */
+/**
+ * Loopback HTTP server that records every request and answers with permissive CORS (no local-network opt-in header).
+ * WebSocket upgrades are recorded as `ws <path>` and completed with a bare handshake.
+ */
 export async function localServer(): Promise<LocalServer> {
 	const hits: LocalServer["hits"] = [];
 	const server = createServer((req, res) => {
@@ -62,6 +66,13 @@ export async function localServer(): Promise<LocalServer> {
 		res.setHeader("Access-Control-Allow-Origin", "*");
 		res.setHeader("Access-Control-Allow-Headers", "*");
 		res.end("local");
+	});
+	server.on("upgrade", (req, socket) => {
+		hits.push({ method: "ws", url: `ws ${req.url ?? ""}`, headers: req.headers });
+		const accept = createHash("sha1").update(`${String(req.headers["sec-websocket-key"])}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+		socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+		socket.on("error", () => {});
+		setTimeout(() => socket.destroy(), 500);
 	});
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	return {

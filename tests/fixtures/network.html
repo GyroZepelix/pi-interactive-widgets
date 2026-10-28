@@ -8,5 +8,9 @@
 window.__probe = async (url) => {
 	try { const r = await fetch(url, { cache: "no-store" }); return "ok " + r.status; } catch (e) { return "error " + e.name; }
 };
+window.__ws = (url) => new Promise((done) => {
+	try { const s = new WebSocket(url); s.onopen = () => { done("open"); s.close(); }; s.onerror = () => done("error"); } catch (e) { done("throw " + e.name); }
+	setTimeout(() => done("timeout"), 3000);
+});
 window.__state = () => ({ confetti: typeof window.confetti, rtc: typeof RTCPeerConnection, webkitRtc: typeof webkitRTCPeerConnection, origin: location.origin });
 </script></body></html>

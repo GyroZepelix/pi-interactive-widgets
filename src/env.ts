@@ -39,6 +39,15 @@ export function detectEnvironment(env: NodeJS.ProcessEnv = process.env, query: T
 	return { kind: "unsupported", supported: false, tmux: false };
 }
 
+/**
+ * Pi's own multiplexer condition (pi-tui 1.4.0 `tui-alt-screen.js`): under tmux, Zellij, or screen Pi enables only
+ * button-motion mouse tracking, so hover moves never arrive. Elsewhere it enables all-motion tracking (PD09).
+ */
+export function pointerMotionReported(env: NodeJS.ProcessEnv = process.env): boolean {
+	const term = env.TERM?.toLowerCase() ?? "";
+	return !(env.TMUX !== undefined || env.ZELLIJ !== undefined || env.STY !== undefined || term.startsWith("tmux") || term.startsWith("screen"));
+}
+
 export interface CellSize {
 	/** Device pixels per cell. */
 	width: number;

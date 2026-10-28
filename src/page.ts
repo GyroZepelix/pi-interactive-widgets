@@ -5,7 +5,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import type { CDPSession, Page, Protocol } from "puppeteer-core";
 import type { BrowserHost, HostedPage } from "./browser.js";
-import { buildCsp, checkRequest, DEFAULT_POLICY, isLocalHost, type NetworkPolicy, normalizeAllowHosts } from "./policy.js";
+import { buildCsp, checkRequest, DEFAULT_POLICY, listsLocalHost, type NetworkPolicy } from "./policy.js";
 
 export type WidgetSource = { html: string } | { path: string };
 
@@ -330,8 +330,7 @@ export class WidgetPage {
 	 * blocks every unlisted local address. Without such an entry Chrome's check stays in place as a second layer.
 	 */
 	private async grantListedLocalAccess(): Promise<void> {
-		const listsLocal = normalizeAllowHosts(this.policy.allowHosts).some((e) => isLocalHost(e.replace(/:\d+$/, "").replace(/^\*\./, "x.")));
-		if (!listsLocal) return;
+		if (!listsLocalHost(this.policy.allowHosts)) return;
 		const browserContextId = this.hosted.page.browserContext().id;
 		for (const name of LOCAL_NETWORK_PERMISSIONS) {
 			await this.cdp
