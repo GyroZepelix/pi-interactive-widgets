@@ -25,7 +25,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test $(find tests -maxdepth 1 -name '*.test.ts' ! -name '*.browser.test.ts')",
-    "test:browser": "node --import tsx --test --test-concurrency=1 tests/*.browser.test.ts"
+    "test:browser": "node --import tsx --test --test-concurrency=1 tests/*.browser.test.ts",
+    "harness": "node --import tsx scripts/harness.ts",
+    "perf": "node --import tsx scripts/perf/run.ts"
   },
   "dependencies": {
     "puppeteer-core": "25.16.0"

@@ -123,7 +123,7 @@ Implementation notes that prevent known mistakes:
 
 ## Work breakdown
 
-- [ ] T01: Rendering pipeline proven outside Pi
+- [x] T01: Rendering pipeline proven outside Pi
   - Depends on: none
   - Scope: package scaffold; browser and page layer (RQ03, RQ04 capture side, RQ08 page side, RQ09, RQ10); kitty transport and environment detection (RQ02 grid, RQ04 transport, RQ12 scaled sends, RQ14 detection); standalone harness and perf scripts.
   - Expected areas: `package.json`, `tsconfig.json`, `src/browser.ts`, `src/page.ts`, `src/policy.ts`, `src/kitty.ts`, `src/env.ts`, `tests/`, `scripts/harness.ts`, `scripts/perf/`.

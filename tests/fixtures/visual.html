@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>visual</title>
+<style>
+body{border:3px solid #f38ba8}
+.c{position:absolute;top:50px;width:200px;height:200px;background:#89b4fa}
+#circle{left:40px;border-radius:50%}
+#square{left:280px}
+#live{position:absolute;left:520px;top:120px;font:bold 28px system-ui;color:#a6e3a1}
+.k{position:absolute;font:bold 16px system-ui;color:#f9e2af}
+</style></head><body>
+<div id="circle" class="c"></div><div id="square" class="c"></div><div id="live">live 0</div>
+<div class="k" style="left:8px;top:6px">TL</div><div class="k" style="right:8px;top:6px">TR</div>
+<div class="k" style="left:8px;bottom:6px">BL</div><div class="k" style="right:8px;bottom:6px">BR</div>
+<script>
+// U4 visual check: a round circle and a square (not squashed), corner labels and border (not cropped), a live counter.
+let n = 0; setInterval(() => { document.getElementById("live").textContent = "live " + (++n); }, 500);
+</script></body></html>
