@@ -11,6 +11,7 @@ Repository-local planning and execution artifacts.
 <!-- spec-items:active:start -->
 | Item | Kind | Status | Updated |
 | --- | --- | --- | --- |
+| [Interactive HTML widgets for Pi](./active/261028-1700-interactive-html-widgets-for-pi/plan.md) | work-item | planned | 2026-10-28 |
 <!-- spec-items:active:end -->
 
 ## Archive
