@@ -74,3 +74,37 @@ Keep this log concise. Do not duplicate unchanged plan or check output.
 ## Completion and handoff
 
 On success, record changed paths, acceptance, check results, residual uncertainty, and the exact next slice (`01.02`). Update checkboxes and Current only in `implementation/index.md`. Stop for a user-controlled Git checkpoint and suggest Dream without invoking either.
+
+### Completion evidence - 2026-10-28T19:35+01:00
+
+Starting HEAD: `a419a0d` (nothing staged). Review: none required for 01.01 (segment review runs after 01.02).
+
+Changed paths (all new, untracked): `package.json`, `package-lock.json`, `tsconfig.json` (copy of `../pi-ez-session-name/tsconfig.json`), `.gitignore`, `src/index.ts` (stub), `src/browser.ts`, `src/page.ts`, `src/policy.ts`, `tests/helpers.ts`, `tests/policy.test.ts`, `tests/page.test.ts`, `tests/page.browser.test.ts`, `tests/network.browser.test.ts`, `tests/fixtures/*.html`, `tests/fixtures/path-widget/`. Spec: this packet, `./index.md` (checkbox, Current, checkpoints, Discoveries), `../plan.md` Decision Log PD08.
+
+Dependencies: exactly PD01, pinned: `puppeteer-core` 25.16.0; dev `typescript` 5.9.3, `tsx` 4.23.15, `@types/node` 22.20.5, `@earendil-works/pi-coding-agent` 1.4.0, `@earendil-works/pi-tui` 1.4.0, `typebox` 1.3.27 (the version Pi 1.4.0 depends on). npm reported install scripts not run for transitive `esbuild`, `protobufjs`, `@google/genai`; `tsx` works without them.
+
+Checks (all from the repository root):
+
+- `npm install`: exit 0.
+- `npm run typecheck`: exit 0.
+- `npm test`: 46 pass, 0 fail (policy, CSP, local-address classification, fragment wrap, base CSS, binary detection, missing-binary error).
+- `npm run test:browser`: 22 pass, 0 fail, run 3 times. Needs internet for the CDN, external-fetch, and `lvh.me` checks.
+- After every browser run: `pgrep -fl chrome-headless-shell` empty; the lifecycle tests also assert that every PID of the browser tree they started is gone.
+
+Acceptance:
+
+- U1: passed (secure context, `localStorage`, ES module import, classic and module dedicated workers, same-origin fetch on the synthetic origin). No fallback. Recorded in `./index.md` Discoveries.
+- U2: Chrome LNA blocks loopback from the widget origin in headless mode; recorded in `./index.md` Discoveries; listed local hosts get a per-origin permission grant (PD08).
+- Inline and path widgets load; path requests outside the entry folder fail with 404, including a file symlink, a directory symlink, `../`, `%2e%2e`, and `..%2f`; no directory listing; a missing entry raises `source file missing: <path>`.
+- Default policy: an external fetch and a non-allowlisted script are blocked and reported (CSP violations), an allowlisted jsdelivr script loads, WebRTC globals are gone, navigation away is blocked with the document kept, `window.open` returns null with no new target, and a form submission is blocked (`form-action`).
+- Open mode: an external fetch succeeds; `127.0.0.1`, `localhost`, `192.168.1.1`, `10.0.0.1`, `100.100.100.100`, `*.ts.net`, and `*.local` are blocked and reported, and the loopback server sees no request; a listed `127.0.0.1:<port>` is reachable in open and default mode while unlisted local names stay blocked.
+- JS errors and CSP violations are captured (`errors`, `blocked`, handler callbacks).
+- Bridge: `pi.submit` returns false without activation, the raw binding is hidden from page script, and a forged call would also fail the isolated-world activation check; after a dispatched click the submit is delivered. `pi.send` queues JSON data, throws on oversized (64 KiB) or non-serializable data, and caps the queue at 100 items (512 KiB) with a reported drop.
+- Screencast: frames are 1440x612 PNG for 720x306 CSS (90x18 cells) at DPR 2; an unchanged page produced no frames over 1.5 s; an animating page streamed 17 frames in 2 s (8.5 fps, minimum gap about 111 ms); minimize stopped frames (`visibilityState` hidden) and restore yielded a new frame in 6-30 ms (median about 10 ms).
+- Input: all 18 grid clicks and a 60-click burst with moves during streaming hit every expected target; wheel, inserted text, and a Backspace key event reach the page.
+- Closing the last page closes the browser; no process started by the tests remains.
+- No frame or still is written to disk (`src/` has no file writes; frames stay base64 strings in RAM).
+
+Residual uncertainty: open-mode WebSocket blocks to local addresses are enforced only by Chrome and are not reported (see `./index.md` Discoveries). Pacing acks 100 ms after each frame, so animating pages run at about 8.5 fps rather than exactly 10. Frozen-page CPU and AC02 CPU are measured by the 01.02 perf scripts, not here. `_client()` (puppeteer internal main session) is used deliberately per the plan Design notes and may change with puppeteer upgrades.
+
+Next slice: `01.02` (kitty transport, environment detection, and standalone harness).

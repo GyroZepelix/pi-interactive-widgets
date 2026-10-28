@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bridge</title>
+<style>button{position:absolute;left:20px;top:20px;width:200px;height:60px}</style></head><body>
+<button id="go">submit</button>
+<script>
+window.__early = pi.submit({ early: true });
+window.__forged = typeof globalThis.__piWidgetBridge;
+try { globalThis.__piWidgetBridge && globalThis.__piWidgetBridge(JSON.stringify({ kind: "submit", json: JSON.stringify({ forged: true }) })); } catch {}
+document.getElementById("go").addEventListener("click", () => { window.__clicked = pi.submit({ clicked: true }); });
+</script></body></html>

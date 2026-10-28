@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>grid</title>
+<style>
+#grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(3,1fr)}
+#grid div{border:1px solid #45475a}
+#grid div.hit{background:#a6e3a1}
+#tick{position:absolute;right:4px;bottom:4px;width:12px;height:12px;background:#fab387}
+</style></head><body>
+<div id="grid"></div><div id="tick"></div>
+<script>
+// 6x3 targets; logs which target each mousedown lands on. A small animation keeps the screencast streaming.
+const grid = document.getElementById("grid");
+for (let i = 0; i < 18; i++) { const d = document.createElement("div"); d.dataset.i = String(i); grid.appendChild(d); }
+window.__hits = [];
+grid.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-i]"); window.__hits.push(t ? Number(t.dataset.i) : -1); t && t.classList.toggle("hit"); });
+let k = 0; setInterval(() => { document.getElementById("tick").style.opacity = String((++k % 10) / 10); }, 30);
+</script></body></html>

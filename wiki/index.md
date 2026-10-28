@@ -9,6 +9,12 @@ Durable current-state codebase knowledge. Read this file first when answering co
 - [Wiki state](./state.md): Ingest and maintenance state.
 - [Raw sources](./raw/README.md): Rules for untrusted raw inputs.
 
+## Dream history
+
+- [Episode catalog](./dreams/episodes.jsonl): Metadata-only index of immutable Dream episodes; open a listed log only for explicit recall.
+- `wiki/dreams/by-spec/<item-id>.md`: Historical per-spec Gamemaster checkpoint ledger; not current guidance.
+- `wiki/dreams/retrospectives/<item-id>.md`: Historical workflow retrospectives; not current guidance.
+
 ## Architecture
 
 TBD after initial codebase ingest.

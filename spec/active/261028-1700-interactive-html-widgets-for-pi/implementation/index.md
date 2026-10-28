@@ -4,9 +4,9 @@ Plan: `../plan.md`
 Mode: sliced
 Assurance: medium - personal single-user setup, reversible local extension, KISS preference (user override, D4)
 Review tier: medium - scoped checks per slice; one focused review at each segment end; one final contract-quality review over the whole change
-Current: `01.01`
+Current: `01.02`
 Expected implementation sessions: 4
-Implementation starting checkpoint: unrecorded
+Implementation starting checkpoint: `a419a0d` (HEAD at 01.01 start; 01.01 changes uncommitted)
 
 ## Shared objective
 
@@ -47,11 +47,11 @@ Ship `pi-interactive-widgets`: the agent calls `show_widget` with `html` or `pat
 ### T01: Rendering pipeline proven outside Pi
 
 Depends on: none
-Segment starting checkpoint: unrecorded
+Segment starting checkpoint: `a419a0d`
 Segment acceptance: headless browser tests pass for serving, network policy, injection, the bridge activation rule, screencast pacing, freezing, and input; the standalone harness renders a live widget in a visible tmux pane in Ghostty 1.4.0 (visual check confirmed by the user), all 18 grid clicks and the 60-click burst land, a frozen widget costs at most 0.5% browser CPU, and one animating widget at 10 fps stays within about 40% of one core in total.
 Segment gate: segment acceptance plus one focused segment review over 01.01 and 01.02.
 
-- [ ] 01.01: Scaffold plus browser and page layer with the U1 and U2 spikes (packet: `./01-01-browser-page-layer.md`)
+- [x] 01.01: Scaffold plus browser and page layer with the U1 and U2 spikes (packet: `./01-01-browser-page-layer.md`)
 
 Boundary 01.01 -> 01.02: the U1 and U2 spike results can force a serving redesign (loopback-server fallback), and the transport harness must consume a verified page API (frames, input, freeze).
 
@@ -74,4 +74,6 @@ Boundary 02.01 -> 02.02: lifecycle policy, revive, scaling, and recovery act on 
 
 ## Discoveries and blockers
 
-None recorded.
+- 01.01 U1 (passed): the synthetic `https://w-<id>.pi-widget.invalid` origin served through page-level CDP Fetch gives `isSecureContext`, `localStorage`, ES module imports, a classic worker with `importScripts`, a module worker, and same-origin `fetch`; worker script requests are intercepted by the page session. No loopback fallback. Evidence: `tests/page.browser.test.ts` U1 test.
+- 01.01 U2 (observed, chrome-headless-shell 156.0.8078.47): Chrome's Local Network Access denies requests from the widget origin to the loopback address space (`corsError: LocalNetworkAccessPermissionDenied`, no request reaches the server), including hosts the extension allows. A public name resolving to 127.0.0.1 (`lvh.me`) is stopped by Chrome even though the extension's hostname check passes it, so Chrome is a working second layer (D27). CDP `Browser.setPermission` with `local-network-access`/`loopback-network`/`local-network` for the widget origin and its browser context lifts it; the page does this only when config lists a local host (plan PD08). Evidence: `tests/network.browser.test.ts` U2 and listed-host tests.
+- 01.01 residual: CDP Fetch does not see WebSockets. In open mode an unlisted `ws://` to a local address is stopped by Chrome LNA (or mixed-content rules) but is not reported in `blocked`; default mode reports it through the CSP `connect-src` violation. Reporting WebSocket blocks in open mode is not implemented.

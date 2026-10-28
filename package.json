@@ -1,0 +1,46 @@
+{
+  "name": "pi-interactive-widgets",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive HTML widgets inline in the Pi transcript, rendered by headless Chromium and streamed as kitty graphics",
+  "type": "module",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "widgets",
+    "kitty-graphics"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test $(find tests -maxdepth 1 -name '*.test.ts' ! -name '*.browser.test.ts')",
+    "test:browser": "node --import tsx --test --test-concurrency=1 tests/*.browser.test.ts"
+  },
+  "dependencies": {
+    "puppeteer-core": "25.16.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "1.4.0",
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typebox": "1.3.27",
+    "typescript": "5.9.3"
+  }
+}

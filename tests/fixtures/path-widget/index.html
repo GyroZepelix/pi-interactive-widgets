@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>path widget</title><link rel="stylesheet" href="sub/style.css"></head><body>
+<div id="out">loading</div>
+<script type="module">
+import { answer } from "./mod.js";
+const out = { secure: isSecureContext, origin: location.origin, module: answer };
+try { localStorage.setItem("k", "v"); out.localStorage = localStorage.getItem("k"); } catch (e) { out.localStorage = "error " + e.name; }
+const ask = (w) => new Promise((resolve) => { w.onmessage = (e) => resolve(e.data); w.onerror = () => resolve("error"); setTimeout(() => resolve("timeout"), 3000); });
+try { out.worker = await ask(new Worker("./worker.js")); } catch (e) { out.worker = "error " + e.name; }
+try { out.moduleWorker = await ask(new Worker("./module-worker.js", { type: "module" })); } catch (e) { out.moduleWorker = "error " + e.name; }
+try { out.data = await (await fetch("./data.json")).json(); } catch (e) { out.data = "error " + e.name; }
+out.css = getComputedStyle(document.getElementById("out")).outlineStyle;
+window.__u1 = out;
+document.getElementById("out").textContent = JSON.stringify(out);
+</script></body></html>

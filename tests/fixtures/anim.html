@@ -1,0 +1,6 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>anim</title>
+<style>#spin{position:absolute;left:40px;top:40px;width:60px;height:60px;background:#cba6f7;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
+</head><body><div id="spin"></div><div id="t">0</div>
+<script>let n = 0; setInterval(() => { document.getElementById("t").textContent = String(++n); }, 16);</script>
+</body></html>
