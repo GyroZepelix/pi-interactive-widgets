@@ -1,20 +1,22 @@
-// Pi entry: `show_widget` tool and renderer, `check_widget`, guide read tracking, `/widgets-refresh`, `/widget-dev` (dev only), session events, and config.
+// Pi entry: `show_widget` tool and renderer, `check_widget`, `show_image`, guide read tracking, `/widgets-refresh`, `/widget-dev` (dev only), session events, and config.
 import { resolve } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { BrowserMissingError } from "./browser.js";
 import { formatCheck } from "./check.js";
-import { noticeLine, type RowDetails, WidgetComponent } from "./component.js";
+import { ImageComponent, type ImageRowDetails, noticeLine, type RowDetails, WidgetComponent } from "./component.js";
 import { configPath, DEFAULT_CONFIG, EXTENSION_NAME, loadConfig } from "./config.js";
 import { detectEnvironment, pointerMotionReported } from "./env.js";
 import { GuideTracker } from "./guide.js";
-import { devLog, type SessionState, timersFromEnv, type Widget, WidgetManager } from "./manager.js";
+import { DEFAULT_IMAGE_ROWS, parseImageSource, sourceName } from "./image.js";
+import { devLog, type ImageDetails, type SessionState, timersFromEnv, type Widget, WidgetManager } from "./manager.js";
 import type { WidgetSource } from "./page.js";
-import { CHECK_DESCRIPTION, DESCRIPTION, GUIDELINES } from "./prompts.js";
+import { CHECK_DESCRIPTION, DESCRIPTION, GUIDELINES, IMAGE_DESCRIPTION, IMAGE_GUIDELINES } from "./prompts.js";
 
 const TOOL = "show_widget";
 const CHECK_TOOL = "check_widget";
+const IMAGE_TOOL = "show_image";
 const DEV_ENTRY = "pi-interactive-widgets-dev";
 const PROBE = "pi-interactive-widgets-probe";
 
@@ -27,9 +29,9 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 
 	const interactive = (ctx: ExtensionContext): boolean => ctx.mode === "tui" && ctx.hasUI;
 
-	function unsupportedText(): string {
+	function unsupportedText(what = "Widgets"): string {
 		const env = state.env;
-		return `Widgets are unavailable in this terminal (${env.kind}${env.clientTerm ? `, tmux client ${env.clientTerm}` : ""}): they need tmux with Ghostty (or kitty) as the client terminal, or plain Ghostty. Nothing was rendered; the user sees "${noticeLine("<title>").replace(" <title>", "")}".`;
+		return `${what} are unavailable in this terminal (${env.kind}${env.clientTerm ? `, tmux client ${env.clientTerm}` : ""}): they need tmux with Ghostty (or kitty) as the client terminal, or plain Ghostty. Nothing was rendered; the user sees "${noticeLine("<title>").replace(" <title>", "")}".`;
 	}
 
 	function summary(w: Widget): string {
@@ -150,6 +152,59 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerTool({
+		name: IMAGE_TOOL,
+		label: "Image",
+		description: IMAGE_DESCRIPTION,
+		promptSnippet: "show_image: show an existing image file or http(s) URL inline in the terminal transcript",
+		promptGuidelines: IMAGE_GUIDELINES,
+		parameters: Type.Object({
+			source: Type.String({ description: "Image file path (relative to the working directory) or http/https URL" }),
+			title: Type.Optional(Type.String({ description: "Short title (default: the file name or URL)" })),
+			rows: Type.Optional(Type.Integer({ minimum: 1, maximum: 256, description: `Maximum height in terminal cells (default ${DEFAULT_IMAGE_ROWS})` })),
+		}),
+		renderShell: "self",
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			state.ctx = ctx;
+			const source = parseImageSource(params.source, ctx.cwd);
+			const title = params.title?.trim() || sourceName(source);
+			if (!interactive(ctx)) {
+				return { content: [{ type: "text", text: "show_image needs Pi's interactive terminal UI; nothing was shown." }], details: { notice: "[images need the interactive terminal UI]", title } satisfies ImageRowDetails };
+			}
+			if (!state.env.supported) {
+				return { content: [{ type: "text", text: unsupportedText("Images") }], details: { notice: noticeLine(title), title } satisfies ImageRowDetails };
+			}
+			let details: ImageDetails;
+			try {
+				details = (await manager.showImage({ source, title, rows: params.rows ?? DEFAULT_IMAGE_ROWS })).details;
+			} catch (err) {
+				throw new Error(notifyFailure(ctx, err));
+			}
+			return { content: [{ type: "text", text: imageSummary(details) }], details: details satisfies ImageRowDetails };
+		},
+		renderCall(args, theme, context) {
+			const title = typeof args.title === "string" && args.title ? args.title : typeof args.source === "string" ? args.source : "image";
+			const shared = context.state as { done?: boolean };
+			return {
+				render: (width: number) => (shared.done ? [] : [truncateToWidth(theme.fg("dim", `◆ ${title} · loading image...`), width)]),
+				invalidate() {},
+			};
+		},
+		renderResult(result, options, theme, context) {
+			const shared = context.state as { done?: boolean };
+			const details = result.details as ImageRowDetails | undefined;
+			if (options.isPartial) return textComponent([]);
+			shared.done = true;
+			if (!details || !("title" in details)) {
+				const text = result.content.find((c) => c.type === "text");
+				return textComponent([theme.fg("error", `◆ image failed: ${text && "text" in text ? text.text : "unknown error"}`)]);
+			}
+			const last = context.lastComponent;
+			if (last instanceof ImageComponent && sameImageRow(last.details, details)) return last;
+			return new ImageComponent(details, theme, manager);
+		},
+	});
+
 	// Guide read tracking (RQ04): a successful `read` of the guide marks it; compaction and session starts reset it.
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.toolName !== "read") return;
@@ -244,6 +299,18 @@ function reviveSource(details: RowDetails, args: unknown): WidgetSource | undefi
 	if (details.source === "path") return details.path ? { path: details.path } : undefined;
 	const html = (args as { html?: unknown } | undefined)?.html;
 	return typeof html === "string" && html ? { html } : undefined;
+}
+
+/** show_image result text (RQ07): source, pixel size, cells used, and id; never image data. */
+export function imageSummary(d: ImageDetails): string {
+	return [
+		`Image ${d.id} is shown inline: ${d.cols}x${d.rows} cells, ${d.width}x${d.height} px sent (${d.format.toUpperCase()}, natural size ${d.natural.width}x${d.natural.height} px).`,
+		`Source: ${d.source}`,
+	].join("\n");
+}
+
+function sameImageRow(a: ImageRowDetails, b: ImageRowDetails): boolean {
+	return "id" in a && "id" in b ? a.id === b.id : a === b;
 }
 
 function sameRow(a: RowDetails, b: RowDetails): boolean {

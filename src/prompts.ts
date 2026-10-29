@@ -26,3 +26,15 @@ export const CHECK_DESCRIPTION = [
 	"Use it on demand, when the user reports a visual problem or show_widget listed load errors, not after every render.",
 	"It never wakes, focuses, revives, or resizes the widget.",
 ].join(" ");
+
+/** show_image description: sources, formats, size, and the local-address rule. */
+export const IMAGE_DESCRIPTION = [
+	"Show an existing image inline in the user's terminal transcript.",
+	"`source` is a file path (relative to the working directory) or an http/https URL; PNG, JPEG, GIF (first frame), WebP, and SVG, at most 20 MB, detected from the content.",
+	"The image keeps its aspect ratio, fits the terminal width, is at most `rows` cells tall (default 24), and is never enlarged beyond its natural size.",
+	"URLs to localhost or private addresses are refused unless the user allowed the host in the extension config.",
+	"The result reports the source, pixel size, and cells used; you do not see the image.",
+].join(" ");
+
+/** Always-on show_image guideline (one bullet). */
+export const IMAGE_GUIDELINES = ["show_image: use show_image to show an existing image file or URL; do not build an `<img>` widget."];

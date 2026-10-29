@@ -86,6 +86,18 @@ The agent-facing version of this advice is [`guide/widgets.md`](guide/widgets.md
 - **Hidden tmux windows:** tmux drops image data sent while the pane's window is not visible, for example when the agent shows a widget while you are in another window. The extension does not detect window switches, so such a widget stays blank until you click it (a widget that still has keyboard focus: press Escape first) or run `/widgets-refresh`.
 - In plain Ghostty, Pi clears all images on full redraws (first render and size changes); the extension re-sends them afterwards.
 
+## Showing images (`show_image`)
+
+The agent calls `show_image` to show an existing image inline, for example a screenshot, a photo, a chart file, or an image URL, instead of building an `<img>` widget. Pi itself shows no images under tmux; this tool uses the same kitty placeholder transport as widgets.
+
+- **Parameters:** `source` (a file path, relative to Pi's working directory, `~` allowed, or an `http`/`https` URL), optional `title` (default: the file name or URL), and optional `rows` (maximum height in cells, 1 to 256, default 24).
+- **Formats:** PNG, JPEG, GIF (first frame only), WebP, and SVG, detected from the content, not the file extension. At most 20 MB per file or download; PNGs above 50 megapixels are refused.
+- **Decoding:** PNG stays in Node (downscaled to the display size when larger) and never starts Chromium. JPEG, GIF, WebP, and SVG are decoded by the headless browser in a short-lived page with JavaScript disabled and no network access (SVG scripts and external references never run or load); that page does not count toward the 5 open widget pages. Without chrome-headless-shell only PNG works; other formats show the install hint.
+- **URLs:** fetched by the extension (not the browser), any public host, at most 5 redirects, 15 s in total. `localhost`, private, link-local, and Tailscale addresses are refused, also when a public name resolves to one or a redirect points to one, unless the host is listed in `network.allowHosts`. The CDN allowlist and `network.open` do not apply.
+- **Display:** the image keeps its aspect ratio, is at most the default widget width and `rows` cells tall, and is never enlarged beyond its natural size at the configured `dpr`. A title line sits above it. It is static: no focus, no timers; a click re-sends it (useful after it was drawn in a hidden tmux window). Resizes and `/widgets-refresh` re-send images like widgets.
+- **Memory and disk:** images live in RAM only (no cache, no temporary files, uploads with kitty `t=d`). At most 20 image stills are kept; older images, and images from a resumed or restarted session, show one "click to load" line, and a click reads the original path or URL again with the same checks. The session file stores only the source, title, sizes, and id.
+- **Result:** the agent gets text only (id, cells, pixel size, format, source); it never sees the image.
+
 ## Configuration
 
 Optional file: `~/.pi/agent/extensions/pi-interactive-widgets/config.json` (the Pi agent directory honors `PI_CODING_AGENT_DIR`). Without it the defaults apply; an invalid file shows a notice and the defaults apply.
@@ -103,7 +115,7 @@ Optional file: `~/.pi/agent/extensions/pi-interactive-widgets/config.json` (the 
 | `chromePath` | newest cached chrome-headless-shell | Browser binary. |
 | `dpr` | `2` | Device pixel ratio (1 to 4), passed to `--force-device-scale-factor`. |
 | `network.open` | `false` | Lift the CDN allowlist (any public `http`/`https` host). Local addresses stay blocked unless listed. |
-| `network.allowHosts` | `[]` | Extra hosts: `example.com`, `*.example.com`, `host:port`, or `[ipv6]:port`. Listed hosts are allowed even when local. |
+| `network.allowHosts` | `[]` | Extra hosts: `example.com`, `*.example.com`, `host:port`, or `[ipv6]:port`. Listed hosts are allowed even when local, also for `show_image` URLs. |
 
 ### Network policy
 

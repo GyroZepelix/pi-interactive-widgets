@@ -7,7 +7,9 @@
 //
 // Prints one JSON summary; exits 1 when an acceptance check fails. No frame is written to disk.
 import { execFileSync } from "node:child_process";
-import { closeSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromePids, PiSession } from "../../tests/e2e/lib.js";
@@ -257,20 +259,41 @@ function imageLike(file: string): boolean {
 }
 
 /**
- * AC04: a 60 s Pi session with an animating widget kept live (focused) writes no frame or still file. New files under
- * the Chromium profile, the isolated agent dir, the repository, and the temp dir are listed; profile writes after the
- * launch settled are reported separately.
+ * AC04: a 60 s Pi session with an animating widget kept live (focused) writes no frame or still file. Before the live
+ * window, three show_image calls (show-image item AC08b) load a PNG file, a JPEG file decoded by Chromium, and a WebP
+ * URL from a loopback server listed in allowHosts. New files under the Chromium profile, the isolated agent dir, the
+ * repository, and the temp dir are listed; profile writes after the launch settled are reported separately.
  */
 async function diskPhase(): Promise<Record<string, unknown>> {
 	const SESSION_MS = 60_000;
 	const marker = join(tmpdir(), `piw-disk-${process.pid}-start`);
 	writeFileSync(marker, "");
 	await sleep(1_100); // find -newer has one-second resolution on some file systems
-	const s = await PiSession.start();
+	const webp = readFileSync(FIXTURE("image.webp"));
+	let served = 0;
+	const server = createServer((_req, res) => {
+		served++;
+		res.setHeader("Content-Type", "image/webp");
+		res.end(webp);
+	});
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+	const port = (server.address() as AddressInfo).port;
+	const s = await PiSession.start({ config: JSON.stringify({ network: { allowHosts: [`127.0.0.1:${port}`] } }) });
 	try {
 		await s.command("/widget-dev tests/fixtures/anim.html 60 10");
-		const w = await s.waitEvent((e) => e.ev === "widget", 20_000, "widget");
+		const first = await s.waitEvent((e) => e.ev === "widget", 20_000, "widget");
 		s.track();
+		// Images decode in the widget's browser, so its profile is the one inspected below.
+		const sources = ["tests/fixtures/image.png", "tests/fixtures/image.jpg", `http://127.0.0.1:${port}/image.webp`];
+		for (const [i, source] of sources.entries()) {
+			await s.command(`e2e-call show_image ${JSON.stringify({ source, title: `disk ${i}`, rows: 6 })}`);
+			await s.waitFor(() => s.events().filter((e) => e.ev === "image")[i], 20_000, `show_image ${source}`);
+			s.track();
+		}
+		const shownImages = s.events().filter((e) => e.ev === "image").map((e) => ({ source: e.source, format: e.format, browser: e.browser, cols: e.cols, rows: e.rows }));
+		// The image rows pushed the first widget off screen; a second one at the bottom becomes the live widget.
+		await s.command("/widget-dev tests/fixtures/anim.html 60 10");
+		const w = await s.waitEvent((e) => e.ev === "widget" && e.id !== first.id, 20_000, "second widget");
 		const browser = chromePids(s.seen);
 		for (const p of browser) startedPids.add(p);
 		const args = browser.length ? execFileSync("ps", ["-o", "command=", "-p", browser.join(",")], { encoding: "utf8" }) : "";
@@ -281,11 +304,11 @@ async function diskPhase(): Promise<Record<string, unknown>> {
 		await sleep(1_100);
 		const grid = await s.waitLocate(Number(w.imageId), 10);
 		s.type(s.press(grid.col + 5, grid.row + 5));
-		await s.waitEvent((e) => e.ev === "focus", 5_000, "focus");
+		await s.waitEvent((e) => e.ev === "focus" && e.id === w.id, 5_000, "focus");
 		const t0 = Date.now();
 		const cpu = await sampleCpu({ browser: (snap) => browser.filter((p) => snap.has(p)) }, SESSION_MS);
 		const liveMs = Date.now() - t0;
-		const frozeDuring = s.events().some((e) => e.ev === "frozen" && e.t >= t0);
+		const frozeDuring = s.events().some((e) => e.ev === "frozen" && e.id === w.id && e.t >= t0);
 		const roots = [profile, s.agentDir, ROOT].filter((d): d is string => !!d);
 		const created = [...new Set([...roots.flatMap((d) => newerFiles(d, marker)), ...newerFiles(tmpdir(), marker, 3)])].filter((f) => !f.startsWith(marker.replace(/-start$/, "")));
 		const images = created.filter(imageLike);
@@ -293,8 +316,10 @@ async function diskPhase(): Promise<Record<string, unknown>> {
 		s.key("Escape");
 		const short = (f: string): string => f.replace(tmpdir(), "$TMPDIR").replace(ROOT, "<repo>");
 		return {
-			pass: images.length === 0 && !frozeDuring && (cpu.browser?.cpuPercent ?? 0) > 1,
+			pass: images.length === 0 && !frozeDuring && (cpu.browser?.cpuPercent ?? 0) > 1 && shownImages.length === 3 && served === 1,
 			sessionMs: liveMs,
+			shownImages,
+			urlRequests: served,
 			animatingBrowserCpuPercent: cpu.browser?.cpuPercent,
 			frozeDuringWindow: frozeDuring,
 			imageFiles: images.map(short),
@@ -311,6 +336,8 @@ async function diskPhase(): Promise<Record<string, unknown>> {
 			}),
 		};
 	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((r) => server.close(() => r()));
 		const left = await s.close();
 		for (const p of left) startedPids.add(p);
 		for (const f of [marker, join(tmpdir(), `piw-disk-${process.pid}-settled`)]) {

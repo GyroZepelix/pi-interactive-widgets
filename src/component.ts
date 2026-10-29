@@ -7,7 +7,7 @@ import type { CellSize } from "./env.js";
 import { UNSUPPORTED_NOTICE } from "./env.js";
 import { type CellBox, fitCells } from "./kitty.js";
 import { mapKey } from "./keys.js";
-import type { WidgetDetails, WidgetManager } from "./manager.js";
+import type { ImageDetails, WidgetDetails, WidgetManager } from "./manager.js";
 import type { WidgetSource } from "./page.js";
 
 /** CSS pixels per wheel line. */
@@ -220,5 +220,69 @@ export class WidgetComponent implements Component, Focusable {
 		this.manager.input(w);
 		if (action.kind === "keys") w.keys(action.events);
 		else w.text(action.text);
+	}
+}
+
+export type ImageRowDetails = ImageDetails | { notice: string; title: string };
+
+/**
+ * show_image row: title line plus the placeholder grid of a static still, scaled to fit narrow panes like widgets. A
+ * dropped still or a row from an earlier process shows one "click to load" line; a click loads it again with the same
+ * checks, and a click on a shown image only re-sends it (no focus).
+ */
+export class ImageComponent implements Component {
+	readonly details: ImageRowDetails;
+	private readonly theme: Theme;
+	private readonly manager: WidgetManager;
+	private lines = 0;
+
+	constructor(details: ImageRowDetails, theme: Theme, manager: WidgetManager) {
+		this.details = details;
+		this.theme = theme;
+		this.manager = manager;
+	}
+
+	invalidate(): void {}
+
+	render(width: number): string[] {
+		const lines = this.renderLines(width);
+		this.lines = lines.length;
+		return lines;
+	}
+
+	private renderLines(width: number): string[] {
+		const t = this.theme;
+		const d = this.details;
+		if ("notice" in d) return [truncateToWidth(t.fg("warning", d.notice), width)];
+		this.manager.observeRender();
+		const fit = (s: string): string => truncateToWidth(s, width);
+		const img = this.manager.getImage(d.id);
+		if (!img || !img.image.retained) {
+			const hint = img?.loading ? " · loading..." : img?.problem ? " · click to retry" : this.manager.fullscreen ? " · click to load" : " · not loaded · fullscreen mode needed to load";
+			const out = [fit(`${t.fg("muted", `◇ ${d.title}`)}${t.fg("dim", hint)}`)];
+			if (img?.problem && !img.loading) out.push(fit(t.fg("warning", img.problem)));
+			return out;
+		}
+		const box = fitCells(img.cols, img.rows, maxGridCols(width));
+		this.manager.setImageDisplay(img, box);
+		return [fit(t.fg("accent", `◆ ${d.title}`)), ...img.image.lines(box.cols, box.rows)];
+	}
+
+	handleMouse(e: TuiMouseEvent): TuiMouseEventResult | undefined {
+		const d = this.details;
+		if ("notice" in d || !this.manager.fullscreen) return undefined;
+		const inRows = e.y >= 0 && e.y < Math.max(1, this.lines);
+		if (!inRows) return undefined;
+		if (e.type === "click") return { handled: true, render: false };
+		if (e.type !== "press") return undefined;
+		// Without the raw input hook, trackpad sideways scrolling arrives as presses with button right or none.
+		if (!this.manager.rawInputHooked && (e.button === "right" || e.button === "none")) return undefined;
+		const img = this.manager.getImage(d.id);
+		if (img?.image.retained) {
+			this.manager.resendImage(img);
+			return { handled: true, render: false };
+		}
+		void this.manager.reloadImage(d);
+		return { handled: true, render: true };
 	}
 }

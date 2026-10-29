@@ -13,8 +13,9 @@ import { CHECK_MAX_EDGE, type CheckReport, type LayoutProbe, PROBE_SCRIPT } from
 import { BUTTON_BITS, WHEEL_PX } from "./component.js";
 import type { WidgetConfig } from "./config.js";
 import { type CellSize, cssCellSize, type Environment, tmuxCellSize, tmuxDisplay } from "./env.js";
+import { decodeInBrowser, fetchImage, type ImageFormat, type ImageSource, imageFit, prepareImage, readImageFile, sourceText } from "./image.js";
 import { type CellBox, imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
-import { flattenPng, limitPng } from "./png.js";
+import { flattenPng, limitPng, type Size } from "./png.js";
 import { type BlockedRequest, DEFAULT_PAGE_BG, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
 import { cdpModifiers, horizontalWheel, isPress, parseSgr, RawInputHook, type RawInputResult, type SgrMouse } from "./rawinput.js";
 
@@ -89,6 +90,8 @@ export interface SessionState {
 	timers?: Timers | undefined;
 	tui?: TUI | undefined;
 	ctx?: ExtensionContext | undefined;
+	/** Terminal writer for kitty commands; stdout when unset (tests inject one). */
+	write?: ((data: string) => void) | undefined;
 }
 
 /** Dev-only JSON-lines log for e2e tests (`PI_WIDGETS_DEV=1` and `PI_WIDGETS_DEV_LOG=<file>`); never frames. */
@@ -226,6 +229,61 @@ export class Widget {
 	}
 }
 
+/** Persisted with a show_image result: the source and sizes only, never image data (RQ06). */
+export interface ImageDetails {
+	kind: "image";
+	id: string;
+	imageId: number;
+	title: string;
+	/** Absolute file path or URL, read again when a dropped or earlier-process row is clicked. */
+	source: string;
+	sourceKind: ImageSource["kind"];
+	format: ImageFormat;
+	/** Grid cells and the pixel size sent. */
+	cols: number;
+	rows: number;
+	width: number;
+	height: number;
+	/** Natural size (CSS px; image pixels for rasters). */
+	natural: Size;
+}
+
+/** At most this many image stills stay in RAM; older ones turn into a one-line row (RQ06). */
+export const MAX_IMAGE_STILLS = 20;
+
+/** An image shown by show_image: a static still, no page, focus, or timers. */
+export class ShownImage {
+	readonly details: ImageDetails;
+	image: KittyImage;
+	/** Current grid (may differ from `details` after a reload in another terminal). */
+	cols: number;
+	rows: number;
+	display: CellBox;
+	/** Load order for the retained-still limit. */
+	seq = 0;
+	loading: Promise<void> | undefined;
+	problem: string | undefined;
+
+	constructor(details: ImageDetails, image: KittyImage) {
+		this.details = details;
+		this.image = image;
+		this.cols = details.cols;
+		this.rows = details.rows;
+		this.display = { cols: details.cols, rows: details.rows, scale: 1 };
+	}
+
+	get id(): string {
+		return this.details.id;
+	}
+}
+
+export interface ShowImageOptions {
+	source: ImageSource;
+	title: string;
+	/** Maximum height in cells. */
+	rows: number;
+}
+
 export interface CreateOptions {
 	source: WidgetSource;
 	title: string;
@@ -235,6 +293,7 @@ export interface CreateOptions {
 
 export class WidgetManager {
 	readonly widgets = new Map<string, Widget>();
+	readonly images = new Map<string, ShownImage>();
 	private host: BrowserHost | undefined;
 	private live: Widget | undefined;
 	private lastMode: string | undefined;
@@ -378,14 +437,19 @@ export class WidgetManager {
 
 	/** Two fresh image ids (double buffering, RQ04); a new frame re-renders the rows to switch to its id. */
 	private newImage(): KittyImage {
-		return new KittyImage([imageIds.next(), imageIds.next()], { tmux: this.s.env.tmux }, undefined, { onSwitch: () => this.s.tui?.requestRender() });
+		return new KittyImage([imageIds.next(), imageIds.next()], { tmux: this.s.env.tmux }, this.s.write, { onSwitch: () => this.s.tui?.requestRender() });
+	}
+
+	private get browserHost(): BrowserHost {
+		this.host ??= new BrowserHost({ chromePath: this.s.config.chromePath, dpr: this.s.config.dpr });
+		return this.host;
 	}
 
 	/** Opens a page for a widget; frames go to its image at its current display size. `id` labels dev-log events. */
 	private async openPage(id: string, source: WidgetSource, title: string, cssWidth: number, cssHeight: number, target: () => Widget | undefined): Promise<WidgetPage> {
-		this.host ??= new BrowserHost({ chromePath: this.s.config.chromePath, dpr: this.s.config.dpr });
+		const host = this.browserHost;
 		await this.evict();
-		return WidgetPage.open(this.host, {
+		return WidgetPage.open(host, {
 			source,
 			title,
 			cssWidth,
@@ -767,10 +831,130 @@ export class WidgetManager {
 		return { report, image };
 	}
 
-	/** Re-sends every retained RAM still at its display size; returns the ids sent. */
+	getImage(id: string): ShownImage | undefined {
+		return this.images.get(id);
+	}
+
+	/** Width cap for images: the widget default width (pane width minus margin, at most 100). */
+	private imageMaxCols(): number {
+		return widgetSize(undefined, undefined, this.s.tui?.terminal.columns ?? process.stdout.columns ?? 104).cols;
+	}
+
+	/** Reads a source with the size, scheme, and local-address checks (RQ02, RQ03). */
+	private loadSource(source: ImageSource): Promise<Buffer> {
+		return source.kind === "file" ? readImageFile(source.path) : fetchImage(source.url, { allowHosts: this.s.config.network.allowHosts });
+	}
+
+	/** Loads, decodes, and fits an image into at most `maxCols` x `maxRows` cells. */
+	private async prepare(source: ImageSource, maxCols: number, maxRows: number) {
+		const bytes = await this.loadSource(source);
+		const dpr = this.s.config.dpr;
+		const cell = this.cellSize();
+		const prepared = await prepareImage(
+			bytes,
+			(natural, vector) => imageFit(natural, cell, dpr, maxCols, maxRows, vector),
+			(b, format, target) => decodeInBrowser(this.browserHost, b, format, target, { onBlocked: (url) => devLog({ ev: "image-blocked", url }) }),
+		);
+		return { prepared, cell, dpr };
+	}
+
+	/** show_image (RQ01-RQ07): loads the source, uploads its still, and registers the row. */
+	async showImage(opts: ShowImageOptions): Promise<ShownImage> {
+		const maxCols = this.imageMaxCols();
+		const { prepared, cell, dpr } = await this.prepare(opts.source, maxCols, opts.rows);
+		const { fit } = prepared;
+		const image = new KittyImage(imageIds.next(), { tmux: this.s.env.tmux }, this.s.write);
+		const details: ImageDetails = {
+			kind: "image",
+			id: randomBytes(6).toString("hex"),
+			imageId: image.ids[0],
+			title: opts.title,
+			source: sourceText(opts.source),
+			sourceKind: opts.source.kind,
+			format: prepared.format,
+			cols: fit.cols,
+			rows: fit.rows,
+			width: fit.width,
+			height: fit.height,
+			natural: prepared.natural,
+		};
+		const img = new ShownImage(details, image);
+		image.send(prepared.data, fit.cols, fit.rows);
+		this.images.set(img.id, img);
+		this.retain(img);
+		devLog({ ev: "image", ...details, cell, dpr, maxCols, maxRows: opts.rows, browser: prepared.browser });
+		return img;
+	}
+
+	/**
+	 * Loads a dropped still again, or a row from an earlier process, with the same checks (RQ06): fitted into the row's
+	 * original grid with a new image id.
+	 */
+	reloadImage(details: ImageDetails): Promise<void> {
+		let img = this.images.get(details.id);
+		if (!img) {
+			img = new ShownImage(details, new KittyImage(imageIds.next(), { tmux: this.s.env.tmux }, this.s.write));
+			this.images.set(img.id, img);
+		}
+		const target = img;
+		if (target.image.retained) return Promise.resolve();
+		target.loading ??= this.reloadNow(target).finally(() => {
+			target.loading = undefined;
+			this.s.tui?.requestRender();
+		});
+		return target.loading;
+	}
+
+	private async reloadNow(img: ShownImage): Promise<void> {
+		const d = img.details;
+		img.problem = undefined;
+		devLog({ ev: "image-reload", id: d.id });
+		try {
+			const source: ImageSource = d.sourceKind === "url" ? { kind: "url", url: d.source } : { kind: "file", path: d.source };
+			const { prepared } = await this.prepare(source, d.cols, d.rows);
+			img.cols = prepared.fit.cols;
+			img.rows = prepared.fit.rows;
+			img.display = { cols: img.cols, rows: img.rows, scale: 1 };
+			img.image.send(prepared.data, img.cols, img.rows);
+			this.retain(img);
+			devLog({ ev: "image-reloaded", id: d.id, imageId: img.image.ids[0], cols: img.cols, rows: img.rows });
+		} catch (err) {
+			img.problem = `load failed: ${err instanceof Error ? err.message : String(err)}`;
+			devLog({ ev: "image-reload-failed", id: d.id, message: img.problem });
+		}
+	}
+
+	/** Marks a loaded image as newest and drops the oldest stills beyond MAX_IMAGE_STILLS (RQ06). */
+	private retain(img: ShownImage): void {
+		img.seq = ++useSeq;
+		const kept = [...this.images.values()].filter((i) => i.image.retained).sort((a, b) => a.seq - b.seq);
+		for (const old of kept.slice(0, Math.max(0, kept.length - MAX_IMAGE_STILLS))) {
+			old.image.delete();
+			devLog({ ev: "image-dropped", id: old.id });
+		}
+		this.s.tui?.requestRender();
+	}
+
+	/** Called from an image row's render with the cells it shows; a changed size re-sends the still scaled to fit. */
+	setImageDisplay(img: ShownImage, box: CellBox): void {
+		if (sameBox(img.display, box)) return;
+		img.display = box;
+		devLog({ ev: "image-display", id: img.id, cols: box.cols, rows: box.rows, scale: box.scale });
+		setImmediate(() => img.image.resend(box.cols, box.rows));
+	}
+
+	/** A click on a shown image re-sends it (recovery after a hidden-window draw); no focus. */
+	resendImage(img: ShownImage): boolean {
+		const sent = img.image.resend(img.display.cols, img.display.rows);
+		devLog({ ev: "image-resend", id: img.id, sent });
+		return sent;
+	}
+
+	/** Re-sends every retained RAM still (widgets and images) at its display size; returns the ids sent. */
 	resendAll(reason = "refresh"): string[] {
 		const sent: string[] = [];
 		for (const w of this.widgets.values()) if (w.image.resend(w.display.cols, w.display.rows)) sent.push(w.id);
+		for (const img of this.images.values()) if (img.image.resend(img.display.cols, img.display.rows)) sent.push(img.id);
 		devLog({ ev: "resend", reason, ids: sent });
 		return sent;
 	}
@@ -780,6 +964,7 @@ export class WidgetManager {
 		this.hookLogged = undefined;
 		const all = [...this.widgets.values()];
 		this.widgets.clear();
+		this.images.clear();
 		this.live = undefined;
 		for (const w of all) {
 			w.clearTimers();

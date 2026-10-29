@@ -39,6 +39,7 @@ Not for approvals or choosing among options. Never for forms, code, commands, er
 - Each call renders a new widget instance with a new id. Editing a file does not change a widget already shown; call `show_widget` again.
 - Size: `cols` x `rows` terminal cells. Default `min(100, terminal width - 4)` x 20, at most 256 each. The result reports the CSS viewport in px and lists blocked requests and JS errors from the initial load.
 - Keep `title` short; the user sees it above the widget.
+- To show an existing image file or URL, call `show_image` instead of building an `<img>` widget.
 
 ## Layout
 

@@ -42,3 +42,11 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/terminal-graphics-tmux.md` (double-buffered frames, new "Pi mouse input" section, `locate` buffer ids, window re-check before harness runs, scope line).
 - Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
 - Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change; no observation added.
+
+## [2026-10-29] dream | Gamemaster checkpoint 261029-2034-show-image-tool/direct
+
+- Trigger: Dream run for "Gamemaster checkpoint: 261029-2034-show-image-tool/direct".
+- Inputs: current implementation session; `spec/archive/261029-2034-show-image-tool/` (plan.md, verification.md, outcome.md, evidence/perf-disk.json); `src/image.ts`, `scripts/perf/run.ts`, `tests/e2e/lib.ts`; pi-tui 1.4.0 `terminal-image.js`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md` (new "Image payloads" section, scope line covers `show_image`, `locate` visible-pane limit).
+- Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
+- Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change; no observation added.
