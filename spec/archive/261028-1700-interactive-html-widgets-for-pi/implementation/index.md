@@ -4,8 +4,8 @@ Plan: `../plan.md`
 Mode: sliced
 Assurance: medium - personal single-user setup, reversible local extension, KISS preference (user override, D4)
 Review tier: medium - scoped checks per slice; one focused review at each segment end; one final contract-quality review over the whole change
-Current: `02.02`
-Expected implementation sessions: 5 (01.01, 01.02, frozen 02.01, 02.03, 02.02); 1 remains (02.02)
+Current: complete
+Expected implementation sessions: 5 (01.01, 01.02, frozen 02.01, 02.03, 02.02); none remain
 Implementation starting checkpoint: `a419a0d` (HEAD at 01.01 start; 01.01 changes uncommitted)
 
 ## Shared objective
@@ -71,7 +71,7 @@ Segment gate: whole-plan acceptance plus one focused final-segment review and on
 
 Boundary 02.03 -> 02.02: lifecycle policy, revive, scaling, and recovery act on the integrated component, and their e2e and CPU/disk acceptance runs are slow and need a working integration to debug against. Comparable PoC work needed one very long session (raw handoff provenance), so a single session would leave no headroom for defects those runs reveal.
 
-- [ ] 02.02: Lifecycle, recovery, and whole-plan acceptance (packet: `./02-02-lifecycle-acceptance.md`)
+- [x] 02.02: Lifecycle, recovery, and whole-plan acceptance (packet: `./02-02-lifecycle-acceptance.md`)
 
 Slice IDs are not numeric order: 02.03 runs before 02.02 because it replaces frozen 02.01 (revision R001).
 
@@ -92,5 +92,7 @@ Not executable. Preserved byte-for-byte as attempt history.
 - 02.01 RQ09 correction (2): reproduced and fixed. In open mode with a listed local host, `connect-src` now allows WebSockets only to listed hosts, so unlisted local `ws://` is blocked and reported (`blocked by CSP connect-src`); public WebSocket hosts must then be listed too. Evidence: `tests/network.browser.test.ts` WebSocket test.
 - 02.01 blocker (open): under tmux Pi 1.4.0 enables only button-motion mouse tracking (`pi-tui/dist/tui-alt-screen.js` L184-L193: `?1002h` without `?1003h` when `TMUX`, `ZELLIJ`, or `STY` is set or `TERM` starts with `tmux`/`screen`; tmux pane flags `mouse_all_flag=0 mouse_button_flag=1`). Hover never reaches the component, so RQ06/AC06 hover-to-live cannot be met without toggling mouse modes (forbidden by RQ05). User visual check: hover did not wake a frozen widget, click did. Plain Ghostty without tmux gets `?1003h` (source only). Awaiting user decision; see `./02-01-pi-integration.md` Attempt 1.
 - For 02.02: freeze and thaw are proven for one page; whether two pages in one chrome-headless-shell share a window id (`Browser.getWindowForTarget`) is untested and matters for keeping one page minimized while another is live.
+- 02.02 (resolved): two pages have distinct window ids; freezing one leaves the other streaming (`tests/page.browser.test.ts`).
+- 02.02: under tmux a placeholder in the last terminal column loses its diacritics, so the grid never uses the last column (`maxGridCols`); tmux drops image data while the window is hidden, so a click or `/widgets-refresh` restores it (README). Test helper `tmux()` trimmed leading blank lines of `capture-pane`; captures now use `tmuxLines()`. Evidence: `./02-02-lifecycle-acceptance.md` Completion evidence.
 - 02.03 (passed, user-confirmed click-to-wake and AC11): a press arriving right after a release could reach a page whose freeze was still queued and leave it frozen; `pointer()` now always queues the idempotent wake for presses (unit test). Thaw to first frame measured 2-16 ms. Evidence: `./02-03-pi-integration-click-wake.md` Completion evidence.
 - Revision R001 (applied, plan PD09): the 02.01 hover blocker is resolved by click-to-wake under tmux, hover-to-wake only where the terminal reports motion, and freeze on release; 02.01 is frozen as history and 02.03 replaces it. See `../refinements/R001.md`.

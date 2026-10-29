@@ -134,7 +134,7 @@ Implementation notes that prevent known mistakes:
   - Expected areas: `package.json`, `tsconfig.json`, `src/browser.ts`, `src/page.ts`, `src/policy.ts`, `src/kitty.ts`, `src/env.ts`, `tests/`, `scripts/harness.ts`, `scripts/perf/`.
   - Acceptance: headless tests prove serving, policy, injection, pacing, freezing, and input; the harness renders a live widget in a visible tmux pane in Ghostty 1.4.0 with every burst click landing and CPU within AC01 and AC02.
   - Verification: `npm run typecheck`, `npm test`, `npm run test:browser`, harness and perf runs.
-- [ ] T02: Pi extension
+- [x] T02: Pi extension
   - Depends on: T01
   - Scope: tool, component, input and focus, click-to-wake and hint text (PD09), bridge delivery, regular mode, environment notices and the plain Ghostty path, config, dev command (RQ01-RQ02, RQ05, RQ08, RQ11, RQ14-RQ16); lifecycle, revive, scaling hookup, recovery, cleanup, README (RQ06-RQ07, RQ12-RQ13, RQ17).
   - Expected areas: `src/index.ts`, `src/component.ts`, `src/manager.ts`, `src/bridge.ts`, `src/keys.ts`, `src/config.ts`, `tests/`, `tests/e2e/`, `README.md`.
@@ -195,8 +195,8 @@ Implementation notes that prevent known mistakes:
 - [x] Planning complete and confirmed.
 - [x] T01 complete (checkpoints `22eed8a`, `8f8396c`).
 - [x] Revision R001 applied (PD09); slice 02.01 frozen as history, replaced by 02.03.
-- [ ] T02 in progress (Current `02.03`, then `02.02`).
-- [ ] Whole-plan verification not run.
+- [x] T02 complete (02.03 checkpoint `580ee78`; 02.02 uncommitted, awaiting a user checkpoint).
+- [x] Whole-plan verification passed; see [verification.md](./verification.md).
 
 ## Execution handoff
 

@@ -1,4 +1,4 @@
-// Pi entry: `show_widget` tool and renderer, `/widget-dev` (dev only), session events, and config load.
+// Pi entry: `show_widget` tool and renderer, `/widgets-refresh`, `/widget-dev` (dev only), session events, and config.
 import { resolve } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
@@ -7,7 +7,7 @@ import { BrowserMissingError } from "./browser.js";
 import { noticeLine, type RowDetails, WidgetComponent } from "./component.js";
 import { configPath, DEFAULT_CONFIG, EXTENSION_NAME, loadConfig } from "./config.js";
 import { detectEnvironment, pointerMotionReported } from "./env.js";
-import { devLog, type SessionState, type Widget, WidgetManager } from "./manager.js";
+import { devLog, type SessionState, timersFromEnv, type Widget, WidgetManager } from "./manager.js";
 import type { WidgetSource } from "./page.js";
 
 const TOOL = "show_widget";
@@ -24,10 +24,11 @@ const DESCRIPTION = [
 	"Bridge: in page JS, `window.pi.send(json)` queues data that reaches you with the user's next message after they release the widget; `window.pi.submit(json)` delivers immediately and starts your turn, but only from a user gesture (for example a click handler). Data is JSON-serializable and capped at 64 KB per call.",
 	"Network: scripts, styles, and fonts load only from cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh, fonts.googleapis.com, and fonts.gstatic.com; fetch, XHR, and WebSocket go only to the widget's own origin (the user can allow more hosts in config). Images from the page itself, data:, and blob:. No WebRTC, popups, form submissions, or navigation away. Blocked requests and JS errors from the initial load are listed in the result.",
 	"The user interacts in Pi fullscreen mode: a click wakes and focuses the widget (hover also wakes it outside tmux); Escape or a click elsewhere releases it, and an idle widget pauses on its last frame. In regular mode they see a still image.",
+	"Lifecycle: at most 5 widget pages stay open, and a page paused for 30 minutes closes; a closed widget, or one from a resumed session, reopens on click with fresh JS state (inline HTML from this call, path widgets from the current file). Do not rely on page state surviving; send what matters through the bridge.",
 ].join(" ");
 
 export default function interactiveWidgets(pi: ExtensionAPI): void {
-	const state: SessionState = { pi, env: detectEnvironment(), config: DEFAULT_CONFIG, motion: pointerMotionReported() };
+	const state: SessionState = { pi, env: detectEnvironment(), config: DEFAULT_CONFIG, motion: pointerMotionReported(), timers: timersFromEnv() };
 	const manager = new WidgetManager(state);
 	const dev = process.env.PI_WIDGETS_DEV === "1";
 	const entryComponents = new Map<string, WidgetComponent>();
@@ -44,9 +45,9 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		const lines = [
 			`Widget ${d.id} is shown inline: ${d.cols}x${d.rows} cells, CSS viewport ${d.cssWidth}x${d.cssHeight} px (${d.cssCell.width}x${d.cssCell.height} CSS px per cell, device pixel ratio ${state.config.dpr}).`,
 		];
-		const blocked = w.page.blocked;
+		const blocked = w.page?.blocked ?? [];
 		lines.push(blocked.length ? `Blocked during load:\n${blocked.map((b) => `- ${b.url} (${b.reason})`).join("\n")}` : "Blocked during load: none.");
-		const errors = w.page.errors;
+		const errors = w.page?.errors ?? [];
 		lines.push(errors.length ? `JS errors during load:\n${errors.map((e) => `- ${e}`).join("\n")}` : "JS errors during load: none.");
 		lines.push(
 			manager.fullscreen
@@ -121,7 +122,16 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 			}
 			const last = context.lastComponent;
 			if (last instanceof WidgetComponent && sameRow(last.details, details)) return last;
-			return new WidgetComponent(details, theme, manager);
+			return new WidgetComponent(details, theme, manager, reviveSource(details, context.args));
+		},
+	});
+
+	pi.registerCommand("widgets-refresh", {
+		description: "Re-send every widget image (after a tmux reattach or when images went blank)",
+		handler: async (_args, ctx) => {
+			const ids = manager.resendAll("command");
+			state.tui?.requestRender();
+			if (ctx.hasUI) ctx.ui.notify(`${EXTENSION_NAME}: re-sent ${ids.length} widget image${ids.length === 1 ? "" : "s"}`, "info");
 		},
 	});
 
@@ -158,17 +168,18 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		});
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		state.ctx = ctx;
 		state.env = detectEnvironment();
 		state.motion = pointerMotionReported();
+		state.timers = timersFromEnv();
 		const loaded = await loadConfig(configPath(getAgentDir()));
 		state.config = loaded.config;
 		if (!loaded.ok) {
 			devLog({ ev: "config-invalid", reason: loaded.reason });
 			if (ctx.hasUI) ctx.ui.notify(`${EXTENSION_NAME}: ${loaded.reason}; using defaults`, "warning");
 		}
-		devLog({ ev: "session_start", env: state.env, motion: state.motion, config: state.config });
+		devLog({ ev: "session_start", reason: event.reason, env: state.env, motion: state.motion, config: state.config, timers: state.timers });
 		if (!interactive(ctx)) return;
 		// The TUI (focus, mode, renders) is only reachable through UI factories; capture it with a transient widget.
 		ctx.ui.setWidget(PROBE, (tui) => {
@@ -179,7 +190,9 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		});
 	});
 
-	pi.on("session_shutdown", async () => {
+	// Shutdown, reload, and session switches release pages, timers, and the browser (RQ17).
+	pi.on("session_shutdown", async (event) => {
+		devLog({ ev: "session_shutdown", reason: event.reason });
 		entryComponents.clear();
 		await manager.shutdown();
 	});
@@ -187,6 +200,14 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 
 function textComponent(lines: string[]): Component {
 	return { render: (width: number) => lines.map((l) => truncateToWidth(l, width)), invalidate() {} };
+}
+
+/** Revive source of a tool row: inline HTML from the persisted tool arguments, or the resolved entry file. */
+function reviveSource(details: RowDetails, args: unknown): WidgetSource | undefined {
+	if (!("id" in details)) return undefined;
+	if (details.source === "path") return details.path ? { path: details.path } : undefined;
+	const html = (args as { html?: unknown } | undefined)?.html;
+	return typeof html === "string" && html ? { html } : undefined;
 }
 
 function sameRow(a: RowDetails, b: RowDetails): boolean {

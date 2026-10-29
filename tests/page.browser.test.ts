@@ -100,6 +100,14 @@ describe("serving (U1) and injection", () => {
 
 	it("rejects a missing entry file before opening a page", async () => {
 		await assert.rejects(WidgetPage.open(host, { source: { path: "/nonexistent/widget.html" }, cssWidth: CSS_W, cssHeight: CSS_H }), (e: unknown) => e instanceof SourceMissingError && e.message === "source file missing: /nonexistent/widget.html");
+		const dir = mkdtempSync(join(tmpdir(), "piw-unreadable-"));
+		const file = join(dir, "index.html");
+		writeFileSync(file, "<p>x</p>", { mode: 0o000 });
+		try {
+			await assert.rejects(WidgetPage.open(host, { source: { path: file }, cssWidth: CSS_W, cssHeight: CSS_H }), (e: unknown) => e instanceof SourceMissingError, "an unreadable entry counts as missing");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 		assert.equal(host.pageCount, 0);
 	});
 
@@ -211,6 +219,32 @@ describe("screencast, freeze, and input", () => {
 		assert.ok((sorted[2] as number) <= 50, `median thaw ${sorted[2]} ms`);
 		assert.ok((sorted[4] as number) <= 150, `worst thaw ${sorted[4]} ms`);
 		assert.ok(w.lastFrame, "last frame kept");
+		await closeAll();
+	});
+
+	it("two pages have their own windows: freezing one leaves the other streaming (02.02 discovery)", async () => {
+		const framesA: Frame[] = [];
+		const framesB: Frame[] = [];
+		const a = await widget({ source: { path: join(FIXTURES, "anim.html") }, onFrame: (f) => framesA.push(f) });
+		const b = await widget({ source: { path: join(FIXTURES, "anim.html") }, onFrame: (f) => framesB.push(f) });
+		const windowOf = async (w: WidgetPage): Promise<number> => {
+			const s = await w.page.createCDPSession();
+			try {
+				return (await s.send("Browser.getWindowForTarget")).windowId;
+			} finally {
+				await s.detach().catch(() => {});
+			}
+		};
+		assert.notEqual(await windowOf(a), await windowOf(b), "distinct window ids");
+		await a.freeze();
+		await sleep(300);
+		const na = framesA.length;
+		const nb = framesB.length;
+		await sleep(1_000);
+		assert.equal(framesA.length, na, "frozen page sends no frames");
+		assert.ok(framesB.length - nb >= 5, `live page keeps streaming (${framesB.length - nb} frames in 1 s)`);
+		assert.equal(await evaluate(a, "document.visibilityState"), "hidden");
+		assert.equal(await evaluate(b, "document.visibilityState"), "visible");
 		await closeAll();
 	});
 

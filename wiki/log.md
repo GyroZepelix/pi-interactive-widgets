@@ -18,3 +18,11 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/AGENTS.md`, `wiki/index.md`, `wiki/log.md`, `wiki/state.md`, `wiki/raw/README.md`.
 - Verification: required files and managed regions exist; existing files were preserved or merged; protocol validation result was recorded. `uv run spec/scripts/manage-spec-item.py --root . validate --operational` passed (`valid: true`, warnings: []). Exhaustive `validate --all` passed (`valid: true`, warnings: []).
 - Notes: installed payload may also create or merge root and spec files; initial codebase ingest is still needed.
+
+## [2026-10-29] dream | Gamemaster checkpoint 261028-1700-interactive-html-widgets-for-pi/02.02
+
+- Trigger: Dream run for "Gamemaster checkpoint: 261028-1700-interactive-html-widgets-for-pi/02.02".
+- Inputs: current implementation session; `spec/archive/261028-1700-interactive-html-widgets-for-pi/` (implementation/02-02-lifecycle-acceptance.md, verification.md, refinements/R001.md); `src/component.ts`, `scripts/perf/lib.ts`, `tests/e2e/lib.ts`, `README.md`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md` (new), `wiki/observations.md` (new), `wiki/index.md`.
+- Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
+- Notes: episode and per-spec ledger section recorded through their stable generic routes; architecture, module, and workflow pages remain TBD pending an initial codebase ingest.

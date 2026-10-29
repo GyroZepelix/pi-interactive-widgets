@@ -10,6 +10,11 @@ export function tmux(...args: string[]): string {
 	return execFileSync("tmux", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+/** Like `tmux` but keeps leading blank lines, so captured row indexes match pane rows. */
+export function tmuxLines(...args: string[]): string {
+	return execFileSync("tmux", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).replace(/\n$/, "");
+}
+
 export interface Split {
 	pane: string;
 	tty: string;
@@ -45,7 +50,7 @@ export function paneAlive(pane: string): boolean {
 
 export function capturePane(pane: string): string {
 	try {
-		return tmux("capture-pane", "-p", "-t", pane);
+		return tmuxLines("capture-pane", "-p", "-t", pane);
 	} catch {
 		return "";
 	}

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
-import { cellToCss, interactHint, noticeLine, WHEEL_PX, WidgetComponent } from "../src/component.js";
+import { cellToCss, interactHint, maxGridCols, noticeLine, WHEEL_PX, WidgetComponent } from "../src/component.js";
 import { PLACEHOLDER } from "../src/kitty.js";
 import type { WidgetDetails, WidgetManager } from "../src/manager.js";
 import { widgetSize } from "../src/manager.js";
@@ -16,6 +16,10 @@ function setup(fullscreen = true, hoverReported = false) {
 	const widget = {
 		buttons: 0,
 		prevFocus: null as unknown,
+		closed: false,
+		reviving: undefined as unknown,
+		problem: undefined as string | undefined,
+		image: { id: 0x123456, retained: true },
 		mouse: (ev: unknown) => calls.push({ what: "mouse", arg: ev }),
 		wheel: (ev: unknown) => calls.push({ what: "wheel", arg: ev }),
 		keys: (ev: unknown) => calls.push({ what: "keys", arg: ev }),
@@ -27,6 +31,9 @@ function setup(fullscreen = true, hoverReported = false) {
 		state: {},
 		get: (id: string) => (id === "w1" ? widget : undefined),
 		pointer: (_w: unknown, kind: string) => calls.push({ what: "pointer", arg: kind }),
+		input: () => calls.push({ what: "input" }),
+		setDisplay: (_w: unknown, box: unknown) => calls.push({ what: "display", arg: box }),
+		revive: (d: { id: string }, source: unknown) => calls.push({ what: "revive", arg: { id: d.id, source } }),
 		focusedComponent: () => editor,
 		focused: () => calls.push({ what: "focused" }),
 		blurred: () => calls.push({ what: "blurred" }),
@@ -57,6 +64,16 @@ describe("mouse mapping", () => {
 		assert.deepEqual(cellToCss(59, 9, { width: 8, height: 17 }, 60, 10), { x: 476, y: 161.5 });
 		assert.deepEqual(cellToCss(70, -3, { width: 8, height: 17 }, 60, 10), { x: 479.5, y: 0 });
 	});
+	it("RQ12: maps scaled cells back to page pixels (width exact, centered vertically)", () => {
+		const css = { width: 8, height: 17 };
+		const box = { cols: 30, rows: 5, scale: 0.5 };
+		assert.deepEqual(cellToCss(0, 0, css, 60, 10, box), { x: 8, y: 17 });
+		assert.deepEqual(cellToCss(29, 4, css, 60, 10, box), { x: 472, y: 153 });
+		const odd = { cols: 40, rows: 7, scale: 40 / 60 }; // 10 rows shown in 6.67 cells, centered in 7
+		const p = cellToCss(20, 3, css, 60, 10, odd);
+		assert.ok(Math.abs(p.x - 246) < 1e-9);
+		assert.ok(Math.abs(p.y - 85) < 1e-9, "the middle shown row maps to the page middle");
+	});
 	it("press focuses and captures; the title line is row 0", () => {
 		const { c, calls, widget, editor } = setup();
 		c.render(80);
@@ -65,7 +82,7 @@ describe("mouse mapping", () => {
 		assert.equal(widget.prevFocus, editor);
 		assert.deepEqual(calls.find((x) => x.what === "mouse")?.arg, { type: "mousePressed", x: 44, y: 42.5, button: "left", buttons: 1, clickCount: 1, modifiers: 0 });
 		assert.deepEqual(
-			calls.slice(0, 2).map((x) => [x.what, x.arg && typeof x.arg === "object" ? "event" : x.arg]),
+			calls.filter((x) => x.what !== "display").slice(0, 2).map((x) => [x.what, x.arg && typeof x.arg === "object" ? "event" : x.arg]),
 			[
 				["pointer", "press"],
 				["mouse", "event"],
@@ -102,7 +119,7 @@ describe("mouse mapping", () => {
 		c.handleInput("\x1b");
 		assert.deepEqual(
 			calls.map((x) => x.what),
-			["keys", "releaseFocus"],
+			["input", "keys", "releaseFocus"],
 		);
 	});
 	it("a refocus of the same component (false then true) does not release", async () => {
@@ -122,13 +139,65 @@ describe("mouse mapping", () => {
 });
 
 describe("rendering", () => {
-	it("renders a title line and the placeholder grid, cropped to the width", () => {
-		const { c } = setup();
-		const lines = c.render(40);
+	it("renders a title line and the full placeholder grid when it fits", () => {
+		const { c, calls } = setup();
+		const lines = c.render(80);
 		assert.equal(lines.length, 11);
 		assert.match(lines[0] ?? "", /grid · click to interact/);
 		assert.doesNotMatch(lines[0] ?? "", /hover/);
-		assert.equal([...(lines[1] ?? "")].filter((ch) => ch === PLACEHOLDER).length, 40);
+		assert.equal([...(lines[1] ?? "")].filter((ch) => ch === PLACEHOLDER).length, 60);
+		assert.deepEqual(calls.find((x) => x.what === "display")?.arg, { cols: 60, rows: 10, scale: 1 });
+	});
+	it("RQ12: a narrow terminal shows the widget scaled to fit and widening restores full size", () => {
+		const { c, calls } = setup();
+		const narrow = c.render(41);
+		assert.equal(narrow.length, 1 + 7, "60x10 at 41 columns shows 40x7 cells");
+		assert.equal([...(narrow[1] ?? "")].filter((ch) => ch === PLACEHOLDER).length, 40);
+		assert.deepEqual(calls.at(-1)?.arg, { cols: 40, rows: 7, scale: 40 / 60 });
+		const wide = c.render(100);
+		assert.equal(wide.length, 11);
+		assert.deepEqual(calls.at(-1)?.arg, { cols: 60, rows: 10, scale: 1 });
+	});
+	it("RQ12: the grid never uses the last terminal column (tmux drops diacritics there)", () => {
+		assert.equal(maxGridCols(45), 44);
+		assert.equal(maxGridCols(1), 1);
+		const { c, calls } = setup();
+		for (const width of [45, 60, 61]) {
+			const lines = c.render(width);
+			const cells = [...(lines[1] ?? "")].filter((ch) => ch === PLACEHOLDER).length;
+			assert.ok(cells <= width - 1, `${cells} grid cells in a ${width}-column row`);
+		}
+		assert.deepEqual(calls.filter((x) => x.what === "display").at(-1)?.arg, { cols: 60, rows: 10, scale: 1 }, "61 columns fit the 60-column widget at full size");
+		assert.equal((calls.filter((x) => x.what === "display").at(-2)?.arg as { cols: number }).cols, 59, "60 columns scale it to 59");
+	});
+	it("RQ07: a closed widget shows its still with a reopen hint and revives on a click instead of focusing", () => {
+		const { c, calls, widget } = setup();
+		widget.closed = true;
+		const lines = c.render(80);
+		assert.match(lines[0] ?? "", /◇ grid · closed · click to reopen/);
+		assert.equal(lines.length, 11, "the RAM still stays shown");
+		assert.deepEqual(c.handleMouse(ev("press", 5, 3)), { handled: true, render: true });
+		assert.deepEqual(calls.filter((x) => x.what === "revive").map((x) => x.arg), [{ id: "w1", source: undefined }]);
+		assert.equal(calls.some((x) => x.what === "mouse" || x.what === "pointer"), false, "nothing reaches a closed page");
+		widget.problem = "source file missing: /tmp/x.html";
+		const failed = c.render(80);
+		assert.match(failed[0] ?? "", /grid · not running · click to retry/);
+		assert.equal(failed[1], "source file missing: /tmp/x.html");
+		assert.equal(failed.length, 12, "with the still");
+	});
+	it("RQ07: a row from an earlier process shows one placeholder line until clicked", () => {
+		const { calls } = setup();
+		const manager = {
+			fullscreen: true,
+			get: () => undefined,
+			observeRender() {},
+			revive: (d: { id: string }, source: unknown) => calls.push({ what: "revive", arg: { id: d.id, source } }),
+		} as unknown as WidgetManager;
+		const c = new WidgetComponent(details, theme, manager, { html: "<p>x</p>" });
+		assert.deepEqual(c.render(80), ["◇ grid · click to load"]);
+		assert.equal(c.handleMouse(ev("press", 3, 1)), undefined, "only the row's line");
+		assert.deepEqual(c.handleMouse(ev("press", 3, 0)), { handled: true, render: true });
+		assert.deepEqual(calls.at(-1)?.arg, { id: "w1", source: { html: "<p>x</p>" } });
 	});
 	it("chooses the hint with Pi's multiplexer condition", () => {
 		assert.equal(interactHint(false), " · click to interact");

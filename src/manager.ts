@@ -1,7 +1,9 @@
-// Widget registry and run-time policy (RQ06 as revised by PD09): one live widget per session (PD06); a press wakes a
-// frozen widget and is then delivered to the page; hover wakes only where the terminal reports motion; release freezes
-// immediately with pi.send delivery; an unfocused widget freezes 10 s after creation or after the last hover move.
-// The focused 5 min timer, LRU, revive, scaling, recovery, and refresh come in 02.02.
+// Widget registry and run-time policy (RQ06 as revised by PD09, RQ07, RQ12, RQ13, RQ17): one live widget per session
+// (PD06); a press wakes a frozen widget and is then delivered to the page; hover wakes only where the terminal reports
+// motion; release freezes immediately with pi.send delivery; an unfocused widget freezes 10 s after creation or the last
+// hover move; a focused widget freezes after 5 min without input. At most 5 pages stay open (least recently used frozen
+// page closes first) and a page frozen for 30 min closes; closed and resumed widgets revive on click with fresh JS state.
+import { randomBytes } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, colorToHex, getCellDimensions, type TUI } from "@earendil-works/pi-tui";
@@ -9,8 +11,8 @@ import { deliveryOptions, widgetMessage } from "./bridge.js";
 import { BrowserHost } from "./browser.js";
 import type { WidgetConfig } from "./config.js";
 import { type CellSize, cssCellSize, type Environment, tmuxCellSize, tmuxDisplay } from "./env.js";
-import { imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
-import { type BlockedRequest, type KeyInput, type MouseInput, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
+import { type CellBox, imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
+import { type BlockedRequest, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
 
 /** Persisted with the tool result (and dev entries); enough to render the row after a reload. */
 export interface WidgetDetails {
@@ -27,9 +29,39 @@ export interface WidgetDetails {
 	path?: string | undefined;
 }
 
-/** Unfocused live widgets freeze this long after creation or the last hover move over them (RQ06, PD09). */
-export const IDLE_MS = 10_000;
 export const DEFAULT_ROWS = 20;
+/** At most this many widget pages stay open per session (RQ07). */
+export const MAX_PAGES = 5;
+
+/** Run-time policy durations (RQ06, RQ07). */
+export interface Timers {
+	/** Unfocused live widgets freeze this long after creation or the last hover move (PD09). */
+	idleMs: number;
+	/** Focused widgets freeze after this long without input. */
+	focusMs: number;
+	/** Frozen pages close after this long. */
+	closeMs: number;
+}
+
+export const DEFAULT_TIMERS: Readonly<Timers> = { idleMs: 10_000, focusMs: 5 * 60_000, closeMs: 30 * 60_000 };
+export const IDLE_MS = DEFAULT_TIMERS.idleMs;
+
+/**
+ * Timer durations; in dev mode only (`PI_WIDGETS_DEV=1`) `PI_WIDGETS_DEV_TIMERS` can shorten them for e2e tests, for
+ * example `idle=1000,focus=3000,close=4000` (milliseconds). Invalid entries are ignored.
+ */
+export function timersFromEnv(env: NodeJS.ProcessEnv = process.env): Timers {
+	const t: Timers = { ...DEFAULT_TIMERS };
+	if (env.PI_WIDGETS_DEV !== "1" || !env.PI_WIDGETS_DEV_TIMERS) return t;
+	const keys: Record<string, keyof Timers> = { idle: "idleMs", focus: "focusMs", close: "closeMs" };
+	for (const part of env.PI_WIDGETS_DEV_TIMERS.split(",")) {
+		const [k, v] = part.split("=").map((x) => x.trim());
+		const key = k ? keys[k] : undefined;
+		const ms = Number(v);
+		if (key && Number.isInteger(ms) && ms > 0) t[key] = ms;
+	}
+	return t;
+}
 
 export interface SessionState {
 	pi: ExtensionAPI;
@@ -37,6 +69,7 @@ export interface SessionState {
 	config: WidgetConfig;
 	/** The terminal reports pointer motion to Pi (no multiplexer), so hover can wake widgets (PD09). */
 	motion: boolean;
+	timers?: Timers | undefined;
 	tui?: TUI | undefined;
 	ctx?: ExtensionContext | undefined;
 }
@@ -74,10 +107,25 @@ export function themeVars(theme: Theme | undefined): Record<string, string> {
 	return out;
 }
 
+/** Monotonic use counter for the least-recently-used order. */
+let useSeq = 0;
+
+const sameBox = (a: CellBox, b: CellBox): boolean => a.cols === b.cols && a.rows === b.rows;
+
 export class Widget {
 	readonly details: WidgetDetails;
-	readonly page: WidgetPage;
 	readonly image: KittyImage;
+	/** Revive source: inline HTML from the tool arguments or the entry file (read again on revive). */
+	readonly source: WidgetSource;
+	/** The open page; undefined or closed once the widget is closed (the RAM still stays in `image`). */
+	page: WidgetPage | undefined;
+	/** Cells the image is currently shown at (scaled to fit in narrow terminals, RQ12). */
+	display: CellBox;
+	/** Last use (creation, wake, input; a monotonic counter) for the least-recently-used close (RQ07). */
+	lastUsed = 0;
+	/** Shown instead of the hint when a revive failed, for example `source file missing: <path>`. */
+	problem: string | undefined;
+	reviving: Promise<void> | undefined;
 	/** Blocked requests seen after the initial load and not yet delivered (capped). */
 	pendingBlocked: BlockedRequest[] = [];
 	/** Pressed mouse buttons (CDP bitmask) for drags. */
@@ -86,12 +134,16 @@ export class Widget {
 	focusedBy: Component | undefined;
 	prevFocus: Component | null = null;
 	idleTimer: NodeJS.Timeout | undefined;
+	focusTimer: NodeJS.Timeout | undefined;
+	closeTimer: NodeJS.Timeout | undefined;
 	private chain: Promise<unknown> = Promise.resolve();
 
-	constructor(details: WidgetDetails, page: WidgetPage, image: KittyImage) {
+	constructor(details: WidgetDetails, page: WidgetPage | undefined, image: KittyImage, source: WidgetSource) {
 		this.details = details;
 		this.page = page;
 		this.image = image;
+		this.source = source;
+		this.display = { cols: details.cols, rows: details.rows, scale: 1 };
 	}
 
 	get id(): string {
@@ -102,27 +154,43 @@ export class Widget {
 		return this.focusedBy !== undefined;
 	}
 
+	/** No open page: the widget shows its RAM still (if any) and revives on click. */
+	get closed(): boolean {
+		return !this.page || this.page.closed;
+	}
+
+	get frozen(): boolean {
+		return this.page?.frozen ?? false;
+	}
+
 	/** Runs page work in order; failures are logged, never thrown into Pi's input loop. */
 	run(what: string, fn: () => Promise<unknown>): void {
 		this.chain = this.chain.then(fn).catch((err: unknown) => devLog({ ev: "error", id: this.id, what, message: err instanceof Error ? err.message : String(err) }));
 	}
 
+	private onPage(what: string, fn: (p: WidgetPage) => Promise<unknown>): void {
+		this.run(what, async () => {
+			const p = this.page;
+			if (p && !p.closed) await fn(p);
+		});
+	}
+
 	mouse(ev: MouseInput): void {
-		this.run("mouse", () => this.page.mouse(ev));
+		this.onPage("mouse", (p) => p.mouse(ev));
 	}
 
 	wheel(ev: WheelInput): void {
-		this.run("wheel", () => this.page.wheel(ev));
+		this.onPage("wheel", (p) => p.wheel(ev));
 	}
 
 	keys(events: KeyInput[]): void {
-		this.run("key", async () => {
-			for (const e of events) await this.page.key(e);
+		this.onPage("key", async (p) => {
+			for (const e of events) await p.key(e);
 		});
 	}
 
 	text(text: string): void {
-		this.run("text", () => this.page.insertText(text));
+		this.onPage("text", (p) => p.insertText(text));
 	}
 
 	blocked(b: BlockedRequest): void {
@@ -133,6 +201,11 @@ export class Widget {
 		const out = this.pendingBlocked;
 		this.pendingBlocked = [];
 		return out;
+	}
+
+	clearTimers(): void {
+		for (const t of [this.idleTimer, this.focusTimer, this.closeTimer]) clearTimeout(t);
+		this.idleTimer = this.focusTimer = this.closeTimer = undefined;
 	}
 }
 
@@ -149,6 +222,8 @@ export class WidgetManager {
 	private live: Widget | undefined;
 	private lastMode: string | undefined;
 	private lastFullRedraws: number | undefined;
+	private lastSize: string | undefined;
+	private resendQueued = false;
 	private readonly s: SessionState;
 
 	constructor(state: SessionState) {
@@ -157,6 +232,10 @@ export class WidgetManager {
 
 	get state(): SessionState {
 		return this.s;
+	}
+
+	get timers(): Timers {
+		return this.s.timers ?? DEFAULT_TIMERS;
 	}
 
 	get(id: string): Widget | undefined {
@@ -172,6 +251,13 @@ export class WidgetManager {
 		return this.s.motion;
 	}
 
+	/** Widgets with an open page. */
+	get openPages(): number {
+		let n = 0;
+		for (const w of this.widgets.values()) if (!w.closed) n++;
+		return n;
+	}
+
 	private cellSize(): CellSize {
 		const fromTmux = this.s.env.tmux ? tmuxCellSize(tmuxDisplay()) : undefined;
 		if (fromTmux) return fromTmux;
@@ -179,55 +265,70 @@ export class WidgetManager {
 		return { width: pi.widthPx, height: pi.heightPx };
 	}
 
-	/** Opens a new widget and resolves after its first frame was uploaded. */
-	async create(opts: CreateOptions): Promise<Widget> {
-		const dpr = this.s.config.dpr;
-		this.host ??= new BrowserHost({ chromePath: this.s.config.chromePath, dpr });
-		const css = cssCellSize(this.cellSize(), dpr);
-		const { cols, rows } = widgetSize(opts.cols, opts.rows, this.s.tui?.terminal.columns ?? process.stdout.columns ?? 104);
-		const image = new KittyImage(imageIds.next(), { tmux: this.s.env.tmux });
-		let widget: Widget | undefined;
-		const page = await WidgetPage.open(this.host, {
-			source: opts.source,
-			title: opts.title,
-			cssWidth: Math.round(cols * css.width),
-			cssHeight: Math.round(rows * css.height),
+	/** Opens a page for a widget; frames go to its image at its current display size. `id` labels dev-log events. */
+	private async openPage(id: string, source: WidgetSource, title: string, cssWidth: number, cssHeight: number, target: () => Widget | undefined): Promise<WidgetPage> {
+		this.host ??= new BrowserHost({ chromePath: this.s.config.chromePath, dpr: this.s.config.dpr });
+		await this.evict();
+		return WidgetPage.open(this.host, {
+			source,
+			title,
+			cssWidth,
+			cssHeight,
 			policy: this.s.config.network,
 			theme: themeVars(this.s.ctx?.ui.theme),
 			onFrame: (f) => {
-				image.send(f.data, cols, rows);
+				const w = target();
+				if (w) w.image.send(f.data, w.display.cols, w.display.rows);
 			},
-			onSend: (data) => devLog({ ev: "send", id: widget?.id, data }),
+			onSend: (data) => devLog({ ev: "send", id, data }),
 			onSubmit: (data) => {
-				devLog({ ev: "submit", id: widget?.id, data });
-				if (widget) this.deliver(widget, "submit", [data]);
+				const w = target();
+				devLog({ ev: "submit", id, data });
+				if (w) this.deliver(w, "submit", [data]);
 			},
 			onBlocked: (b) => {
-				widget?.blocked(b);
-				devLog({ ev: "blocked", id: widget?.id, ...b });
+				target()?.blocked(b);
+				devLog({ ev: "blocked", id, ...b });
 			},
-			onError: (message) => devLog({ ev: "jserror", id: widget?.id, message }),
+			onError: (message) => devLog({ ev: "jserror", id, message }),
 		});
+	}
+
+	/** Opens a new widget and resolves after its first frame was uploaded. */
+	async create(opts: CreateOptions): Promise<Widget> {
+		const dpr = this.s.config.dpr;
+		const css = cssCellSize(this.cellSize(), dpr);
+		const { cols, rows } = widgetSize(opts.cols, opts.rows, this.s.tui?.terminal.columns ?? process.stdout.columns ?? 104);
+		const image = new KittyImage(imageIds.next(), { tmux: this.s.env.tmux });
+		const cssWidth = Math.round(cols * css.width);
+		const cssHeight = Math.round(rows * css.height);
+		let widget: Widget | undefined;
+		const id = randomBytes(6).toString("hex");
+		const page = await this.openPage(id, opts.source, opts.title, cssWidth, cssHeight, () => widget);
 		const details: WidgetDetails = {
-			id: page.id,
+			id,
 			imageId: image.id,
 			title: opts.title,
 			cols,
 			rows,
-			cssWidth: Math.round(cols * css.width),
-			cssHeight: Math.round(rows * css.height),
+			cssWidth,
+			cssHeight,
 			cssCell: css,
 			source: "html" in opts.source ? "html" : "path",
 			path: "path" in opts.source ? opts.source.path : undefined,
 		};
-		widget = new Widget(details, page, image);
+		widget = new Widget(details, page, image, opts.source);
+		// The first frame arrived before the widget existed; send it now at full size (the first render rescales it).
+		const first = page.lastFrame;
+		if (first) image.send(first.data, cols, rows);
 		await this.start(widget);
 		return widget;
 	}
 
-	/** Registers a new widget: live with the 10 s idle timer from creation in fullscreen, frozen otherwise. */
+	/** Registers a new widget: live with the idle timer from creation in fullscreen, frozen otherwise. */
 	async start(w: Widget): Promise<void> {
 		this.widgets.set(w.id, w);
+		w.lastUsed = ++useSeq;
 		devLog({ ev: "widget", ...w.details });
 		if (this.fullscreen) {
 			await this.makeLive(w);
@@ -237,31 +338,120 @@ export class WidgetManager {
 		}
 	}
 
+	/**
+	 * Revives a closed widget, or a row from an earlier process (resume, restart, reload), with fresh JS state:
+	 * inline widgets from their tool arguments, path widgets from the current file (RQ07).
+	 */
+	revive(details: WidgetDetails, source: WidgetSource | undefined): Promise<void> {
+		let w = this.widgets.get(details.id);
+		if (!w) {
+			// A row from an earlier process: new image id (ids are never reused within a process), no still yet.
+			const src = source ?? (details.path ? { path: details.path } : undefined);
+			devLog({ ev: "revive", id: details.id, resumed: true, source: src ? Object.keys(src)[0] : null });
+			if (!src) return Promise.resolve();
+			w = new Widget(details, undefined, new KittyImage(imageIds.next(), { tmux: this.s.env.tmux }), src);
+			this.widgets.set(w.id, w);
+		}
+		const widget = w;
+		if (!widget.closed) return Promise.resolve();
+		widget.reviving ??= this.reviveNow(widget).finally(() => {
+			widget.reviving = undefined;
+			this.s.tui?.requestRender();
+		});
+		return widget.reviving;
+	}
+
+	private async reviveNow(w: Widget): Promise<void> {
+		const t0 = performance.now();
+		const warm = this.host?.pageCount ? true : false;
+		w.problem = undefined;
+		w.image.resend(w.display.cols, w.display.rows);
+		let page: WidgetPage;
+		try {
+			page = await this.openPage(w.id, w.source, w.details.title, w.details.cssWidth, w.details.cssHeight, () => w);
+		} catch (err) {
+			const missing = err instanceof SourceMissingError;
+			w.problem = missing ? err.message : `revive failed: ${err instanceof Error ? err.message : String(err)}`;
+			devLog({ ev: "revive-failed", id: w.id, message: w.problem });
+			return;
+		}
+		w.page = page;
+		w.pendingBlocked = [];
+		const first = page.lastFrame;
+		if (first) w.image.send(first.data, w.display.cols, w.display.rows);
+		devLog({ ev: "revived", id: w.id, ms: Math.round(performance.now() - t0), warm, imageId: w.image.id, pages: this.host?.pageCount ?? 0 });
+		w.lastUsed = ++useSeq;
+		if (this.fullscreen) {
+			await this.makeLive(w);
+			if (!w.focused) this.armIdle(w);
+		} else await this.freeze(w);
+	}
+
 	/** Freezes the previous live widget and thaws this one (PD06: at most one live widget). */
 	async makeLive(w: Widget): Promise<void> {
 		const prev = this.live;
+		if (w.closed) return;
 		this.live = w;
+		w.lastUsed = ++useSeq;
+		clearTimeout(w.closeTimer);
+		w.closeTimer = undefined;
 		if (prev && prev !== w) await this.freeze(prev);
-		if (w.page.frozen) {
+		const page = w.page;
+		if (page?.frozen) {
+			// A wake also restores the image if the terminal dropped it (RQ13); identical frames are not sent again.
+			w.image.resend(w.display.cols, w.display.rows);
 			if (devLogging()) {
 				const t0 = performance.now();
-				w.page
+				page
 					.nextFrame(2_000)
 					.then(() => devLog({ ev: "thaw-frame", id: w.id, ms: Math.round(performance.now() - t0) }))
 					.catch(() => {});
 			}
-			await w.page.thaw();
+			await page.thaw();
 			devLog({ ev: "live", id: w.id });
 		}
 	}
 
 	async freeze(w: Widget): Promise<void> {
 		clearTimeout(w.idleTimer);
-		w.idleTimer = undefined;
+		clearTimeout(w.focusTimer);
+		w.idleTimer = w.focusTimer = undefined;
 		if (this.live === w) this.live = undefined;
-		if (w.page.closed || w.page.frozen) return;
-		await w.page.freeze();
+		const page = w.page;
+		if (!page || page.closed) return;
+		if (!w.closeTimer) {
+			w.closeTimer = setTimeout(() => {
+				w.closeTimer = undefined;
+				if (w.frozen && !w.focused) w.run("close-timer", () => this.closePage(w, "frozen-timeout"));
+			}, this.timers.closeMs);
+			w.closeTimer.unref?.();
+		}
+		if (page.frozen) return;
+		await page.freeze();
 		devLog({ ev: "frozen", id: w.id });
+	}
+
+	/** Closes a widget's page; the RAM still stays and a click revives it. The browser exits after its last page. */
+	async closePage(w: Widget, reason: string): Promise<void> {
+		const page = w.page;
+		if (!page || page.closed) return;
+		if (w.focused) this.releaseFocus(w);
+		w.clearTimers();
+		if (this.live === w) this.live = undefined;
+		await page.close();
+		devLog({ ev: "closed", id: w.id, reason, pages: this.host?.pageCount ?? 0, browserPid: this.host?.pid ?? null });
+		this.s.tui?.requestRender();
+	}
+
+	/** Keeps at most MAX_PAGES - 1 open pages before another opens: the least recently used frozen page closes first. */
+	async evict(): Promise<void> {
+		for (;;) {
+			if (this.openPages < MAX_PAGES) return;
+			const open = [...this.widgets.values()].filter((w) => !w.closed && !w.focused && w !== this.live).sort((a, b) => a.lastUsed - b.lastUsed);
+			const victim = open.find((w) => w.frozen) ?? open[0];
+			if (!victim) return;
+			await this.closePage(victim, "lru");
+		}
 	}
 
 	private armIdle(w: Widget): void {
@@ -269,18 +459,41 @@ export class WidgetManager {
 		w.idleTimer = setTimeout(() => {
 			w.idleTimer = undefined;
 			if (!w.focused) w.run("idle-freeze", () => this.freeze(w));
-		}, IDLE_MS);
+		}, this.timers.idleMs);
 		w.idleTimer.unref?.();
+	}
+
+	private armFocus(w: Widget): void {
+		clearTimeout(w.focusTimer);
+		w.focusTimer = setTimeout(() => {
+			w.focusTimer = undefined;
+			// Keeps focus: the next key or click wakes the widget again.
+			if (w.focused) w.run("focus-freeze", () => this.freeze(w));
+		}, this.timers.focusMs);
+		w.focusTimer.unref?.();
 	}
 
 	/**
 	 * Pointer activity over a widget makes it live; the caller then queues the event itself, so a waking press reaches
 	 * the page after the thaw. A press always queues the (idempotent) wake so it also follows a pending release freeze.
-	 * Only an unfocused widget gets the 10 s idle timer; a press focuses it, which clears the timer again.
+	 * An unfocused widget gets the idle timer on hover or press; a focused one restarts its 5 min input timer.
 	 */
 	pointer(w: Widget, kind: "hover" | "press" | "drag" | "wheel"): void {
-		if (kind === "press" || this.live !== w || w.page.frozen) w.run("live", () => this.makeLive(w));
-		if (!w.focused && (kind === "hover" || kind === "press")) this.armIdle(w);
+		if (w.closed) return;
+		w.lastUsed = ++useSeq;
+		// A first press also restores an image the terminal dropped (RQ13), even on a widget that is still live.
+		if (kind === "press" && !w.focused && !w.frozen) w.image.resend(w.display.cols, w.display.rows);
+		if (kind === "press" || this.live !== w || w.frozen) w.run("live", () => this.makeLive(w));
+		if (w.focused) this.armFocus(w);
+		else if (kind === "hover" || kind === "press") this.armIdle(w);
+	}
+
+	/** Key input to a focused widget: wakes it after a focused-idle freeze and restarts the input timer. */
+	input(w: Widget): void {
+		if (w.closed) return;
+		w.lastUsed = ++useSeq;
+		if (this.live !== w || w.frozen) w.run("live", () => this.makeLive(w));
+		if (w.focused) this.armFocus(w);
 	}
 
 	/** Called when Pi gives a widget component keyboard focus. */
@@ -289,6 +502,7 @@ export class WidgetManager {
 		w.focusedBy = component;
 		clearTimeout(w.idleTimer);
 		w.idleTimer = undefined;
+		this.armFocus(w);
 		devLog({ ev: "focus", id: w.id });
 	}
 
@@ -297,8 +511,10 @@ export class WidgetManager {
 		if (!w.focusedBy) return;
 		w.focusedBy = undefined;
 		w.buttons = 0;
+		clearTimeout(w.focusTimer);
+		w.focusTimer = undefined;
 		devLog({ ev: "release", id: w.id });
-		this.deliver(w, "send", w.page.drainQueue());
+		this.deliver(w, "send", w.page?.drainQueue() ?? []);
 		w.run("release-freeze", () => this.freeze(w));
 	}
 
@@ -329,8 +545,20 @@ export class WidgetManager {
 	}
 
 	/**
-	 * Called from component renders: reacts to TUI mode switches (regular mode freezes and releases widgets) and, in
-	 * plain Ghostty, re-sends stills after Pi's full redraws (which delete all kitty images outside tmux).
+	 * Called from a widget row's render with the cells it shows (RQ12): a changed size re-sends the still scaled to fit,
+	 * and later frames follow at that size.
+	 */
+	setDisplay(w: Widget, box: CellBox): void {
+		if (sameBox(w.display, box)) return;
+		w.display = box;
+		devLog({ ev: "display", id: w.id, cols: box.cols, rows: box.rows, scale: box.scale });
+		setImmediate(() => w.image.resend(box.cols, box.rows));
+	}
+
+	/**
+	 * Called from component renders: reacts to TUI mode switches (regular mode freezes and releases widgets), re-sends
+	 * stills after terminal resizes (RQ13) and, in plain Ghostty, after Pi's full redraws (which delete all kitty images
+	 * outside tmux). Re-sends run after the current render was written.
 	 */
 	observeRender(): void {
 		const tui = this.s.tui;
@@ -349,24 +577,44 @@ export class WidgetManager {
 			}
 			devLog({ ev: "mode", mode });
 		}
+		const size = `${tui.terminal.columns}x${tui.terminal.rows}`;
+		if (this.lastSize !== undefined && size !== this.lastSize) this.queueResend(`resize ${size}`);
+		this.lastSize = size;
 		if (!this.s.env.tmux) {
 			const redraws = tui.fullRedraws;
-			if (this.lastFullRedraws !== undefined && redraws !== this.lastFullRedraws) setImmediate(() => this.resendAll());
+			if (this.lastFullRedraws !== undefined && redraws !== this.lastFullRedraws) this.queueResend("full-redraw");
 			this.lastFullRedraws = redraws;
 		}
 	}
 
-	resendAll(): void {
-		for (const w of this.widgets.values()) w.image.resend(w.details.cols, w.details.rows);
+	private queueResend(reason: string): void {
+		if (this.resendQueued) return;
+		this.resendQueued = true;
+		setImmediate(() => {
+			this.resendQueued = false;
+			this.resendAll(reason);
+		});
+	}
+
+	/** Re-sends every retained RAM still at its display size; returns the ids sent. */
+	resendAll(reason = "refresh"): string[] {
+		const sent: string[] = [];
+		for (const w of this.widgets.values()) if (w.image.resend(w.display.cols, w.display.rows)) sent.push(w.id);
+		devLog({ ev: "resend", reason, ids: sent });
+		return sent;
 	}
 
 	async shutdown(): Promise<void> {
 		const all = [...this.widgets.values()];
 		this.widgets.clear();
 		this.live = undefined;
-		for (const w of all) clearTimeout(w.idleTimer);
-		await Promise.allSettled(all.map((w) => w.page.close()));
+		for (const w of all) {
+			w.clearTimers();
+			w.focusedBy = undefined;
+		}
+		await Promise.allSettled(all.map((w) => w.page?.close()));
 		await this.host?.close();
 		this.host = undefined;
+		devLog({ ev: "shutdown", widgets: all.length });
 	}
 }

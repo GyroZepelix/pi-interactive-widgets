@@ -11,7 +11,6 @@ Repository-local planning and execution artifacts.
 <!-- spec-items:active:start -->
 | Item | Kind | Status | Updated |
 | --- | --- | --- | --- |
-| [Interactive HTML widgets for Pi](./active/261028-1700-interactive-html-widgets-for-pi/plan.md) | work-item | planned | 2026-10-28 |
 <!-- spec-items:active:end -->
 
 ## Archive
@@ -19,6 +18,7 @@ Repository-local planning and execution artifacts.
 <!-- spec-items:archive:start -->
 | Item | Kind | Status | Updated |
 | --- | --- | --- | --- |
+| [Interactive HTML widgets for Pi](./archive/261028-1700-interactive-html-widgets-for-pi/plan.md) | work-item | completed | 2026-10-29 |
 <!-- spec-items:archive:end -->
 
 ## Templates

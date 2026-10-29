@@ -1,7 +1,8 @@
 // One widget page: synthetic-origin serving through CDP Fetch, injection, CSP, paced PNG screencast,
 // minimize freeze, input dispatch, and error and violation capture (RQ04 capture side, RQ06 mechanics, RQ08-RQ10).
 import { randomBytes } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import type { CDPSession, Page, Protocol } from "puppeteer-core";
 import type { BrowserHost, HostedPage } from "./browser.js";
@@ -194,6 +195,7 @@ async function resolvePathRoot(path: string): Promise<PathRoot> {
 	try {
 		entry = await realpath(path);
 		if (!(await stat(entry)).isFile()) throw new Error("not a file");
+		await access(entry, constants.R_OK);
 	} catch {
 		throw new SourceMissingError(path);
 	}

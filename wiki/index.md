@@ -15,6 +15,11 @@ Durable current-state codebase knowledge. Read this file first when answering co
 - `wiki/dreams/by-spec/<item-id>.md`: Historical per-spec Gamemaster checkpoint ledger; not current guidance.
 - `wiki/dreams/retrospectives/<item-id>.md`: Historical workflow retrospectives; not current guidance.
 
+## Topics
+
+- [Terminal graphics under tmux](./terminal-graphics-tmux.md): Placeholder grid, passthrough, mouse-tracking, and tmux test-tooling constraints for widget rendering work.
+- [Observations](./observations.md): Tentative findings for Dream and memory maintenance; not normal task context.
+
 ## Architecture
 
 TBD after initial codebase ingest.

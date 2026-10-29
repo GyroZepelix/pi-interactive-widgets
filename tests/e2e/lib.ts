@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { capturePane, closeSplit, openSplit, sendLiteral, sgr, sleep, type Split, tmux } from "../../scripts/perf/lib.js";
+import { capturePane, closeSplit, openSplit, sendLiteral, sgr, sleep, type Split, tmux, tmuxLines } from "../../scripts/perf/lib.js";
 import { PLACEHOLDER } from "../../src/kitty.js";
 
 export const ROOT = resolve(import.meta.dirname, "../..");
@@ -20,6 +20,16 @@ export interface StartOptions {
 	config?: string;
 	env?: Record<string, string>;
 	unsetEnv?: string[];
+	/** Reuse an agent dir from an earlier session (resume tests); it is kept on close. */
+	agentDir?: string;
+	/** Save the session (no `--no-session`); with `continue` Pi continues the most recent one (`-c`). */
+	persist?: boolean;
+	continue?: boolean;
+	/** Open Pi in a new detached window with this name (manual checks) instead of a split of the current window. */
+	window?: string;
+	/** Pane size to request (default 80x24). */
+	cols?: number;
+	rows?: number;
 }
 
 function descendants(root: number): number[] {
@@ -61,6 +71,15 @@ export function chromePids(pids: Iterable<number>): number[] {
 		.map((l) => Number(l.trim().split(/\s+/)[0]));
 }
 
+/** A new detached window in the attached client's session; it closes with its last pane. */
+function openWindow(name: string, command: string): Split {
+	const client = tmux("list-clients", "-F", "#{client_name}").split("\n")[0];
+	if (!client) throw new Error("no attached tmux client");
+	const session = tmux("display", "-p", "-c", client, "#{session_id}");
+	const [pane, tty] = tmux("new-window", "-d", "-t", `${session}:`, "-n", name, "-c", ROOT, "-P", "-F", "#{pane_id} #{pane_tty}", command).split(" ") as [string, string];
+	return { pane, tty };
+}
+
 const pause = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 const q = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`;
@@ -74,9 +93,12 @@ export class PiSession {
 	/** Every process seen under the split (Pi, its children, the browser tree). */
 	readonly seen = new Set<number>();
 
-	private constructor(split: Split, agentDir: string) {
+	private readonly keepAgentDir: boolean;
+
+	private constructor(split: Split, agentDir: string, keepAgentDir: boolean) {
 		this.split = split;
 		this.agentDir = agentDir;
+		this.keepAgentDir = keepAgentDir;
 		this.devLogPath = join(agentDir, "dev.log");
 		this.turnsPath = join(agentDir, "turns.log");
 		this.panePid = Number(tmux("display", "-p", "-t", split.pane, "#{pane_pid}"));
@@ -84,7 +106,7 @@ export class PiSession {
 	}
 
 	static async start(opts: StartOptions = {}): Promise<PiSession> {
-		const agentDir = mkdtempSync(join(tmpdir(), "piw-e2e-"));
+		const agentDir = opts.agentDir ?? mkdtempSync(join(tmpdir(), "piw-e2e-"));
 		// The user's halfPage bindings (AC05 checks ctrl+u and ctrl+d while a widget is focused).
 		writeFileSync(join(agentDir, "keybindings.json"), JSON.stringify({ "tui.altScreen.halfPageUp": "ctrl+u", "tui.altScreen.halfPageDown": "ctrl+d" }));
 		if (opts.config !== undefined) {
@@ -100,12 +122,13 @@ export class PiSession {
 			PI_SKIP_VERSION_CHECK: "1",
 			...opts.env,
 		};
-		const args = ["-ne", "-ns", "-np", "-nc", "--no-session", "-e", "./src/index.ts", "-e", "./tests/e2e/probe-extension.ts", "--model", "e2e-faux/echo", "--tui-mode", opts.tuiMode ?? "fullscreen"];
+		const session = opts.persist ? ["--session-dir", join(agentDir, "sessions"), ...(opts.continue ? ["-c"] : [])] : ["--no-session"];
+		const args = ["-ne", "-ns", "-np", "-nc", ...session, "-e", "./src/index.ts", "-e", "./tests/e2e/probe-extension.ts", "--model", "e2e-faux/echo", "--tui-mode", opts.tuiMode ?? "fullscreen"];
 		const cmd = `env ${(opts.unsetEnv ?? []).map((k) => `-u ${k} `).join("")}${Object.entries(env)
 			.map(([k, v]) => `${k}=${q(v)}`)
 			.join(" ")} pi ${args.join(" ")}; c=$?; [ $c -ne 0 ] && sleep 30`;
-		const split = openSplit(cmd, ROOT, { cols: 80, rows: 24 });
-		const s = new PiSession(split, agentDir);
+		const split = opts.window ? openWindow(opts.window, cmd) : openSplit(cmd, ROOT, { cols: opts.cols ?? 80, rows: opts.rows ?? 24 });
+		const s = new PiSession(split, agentDir, opts.agentDir !== undefined);
 		await s.waitEvent((e) => e.ev === "session_start", 20_000, "session_start");
 		if (!(opts.unsetEnv ?? []).includes("TMUX")) await s.waitEvent((e) => e.ev === "tui", 10_000, "TUI capture");
 		await sleep(500);
@@ -155,7 +178,7 @@ export class PiSession {
 	locate(imageId: number): { row: number; col: number; rows: number } | undefined {
 		let raw = "";
 		try {
-			raw = tmux("capture-pane", "-p", "-e", "-t", this.split.pane);
+			raw = tmuxLines("capture-pane", "-p", "-e", "-t", this.split.pane);
 		} catch {
 			return undefined;
 		}
@@ -163,14 +186,22 @@ export class PiSession {
 		let row = -1;
 		let col = -1;
 		let rows = 0;
-		raw.split("\n").forEach((line, i) => {
+		// tmux emits a color only where it changes, so continuation rows of the grid may carry no color of their own.
+		const lines = raw.split("\n");
+		const other = /38[;:]2[;:]/;
+		let open = false;
+		lines.forEach((line, i) => {
 			const at = line.indexOf(PLACEHOLDER);
-			if (at < 0 || !color.test(line)) return;
-			if (row < 0) {
-				row = i;
-				col = [...line.slice(0, at).replace(/\x1b\[[0-9;:]*m/g, "")].length;
-			}
-			rows++;
+			const own = at >= 0 && color.test(line);
+			const continued = open && at >= 0 && !other.test(line.slice(0, at + 1));
+			if (own || continued) {
+				if (row < 0) {
+					row = i;
+					col = [...line.slice(0, at).replace(/\x1b\[[0-9;:]*m/g, "")].length;
+				}
+				rows++;
+				open = true;
+			} else open = false;
 		});
 		return row < 0 ? undefined : { row, col, rows };
 	}
@@ -204,6 +235,32 @@ export class PiSession {
 		return sgr(0, x + 1, y + 1) + sgr(0, x + 1, y + 1, true);
 	}
 
+	/** PID of the Pi process (the node process running Pi's CLI) in this split. */
+	piPid(): number | undefined {
+		const pids = descendants(this.panePid).filter((p) => p !== this.panePid);
+		if (!pids.length) return undefined;
+		let out = "";
+		try {
+			out = execFileSync("ps", ["-o", "pid=,command=", "-p", pids.join(",")], { encoding: "utf8" });
+		} catch {
+			return undefined;
+		}
+		const line = out
+			.trim()
+			.split("\n")
+			// Pi sets its process title to "pi"; the parent is the pane's shell.
+			.find((l) => /^\s*\d+\s+(pi\b|node\b.*\bpi\b|.*cli\.js)/.test(l) && !/chrome-headless-shell/.test(l));
+		return line ? Number(line.trim().split(/\s+/)[0]) : undefined;
+	}
+
+	/** Narrows this split by opening a dummy pane beside it (only panes this run started change size). */
+	narrow(cols: number): Split {
+		const width = Number(tmux("display", "-p", "-t", this.split.pane, "#{pane_width}"));
+		const out = tmux("split-window", "-h", "-d", "-t", this.split.pane, "-l", String(Math.max(2, width - cols - 1)), "-P", "-F", "#{pane_id} #{pane_tty}", "sleep 3600");
+		const [pane, tty] = out.split(" ") as [string, string];
+		return { pane, tty };
+	}
+
 	/** Closes the split and returns every process it started that is still alive after 5 s. */
 	async close(): Promise<number[]> {
 		this.track();
@@ -214,7 +271,7 @@ export class PiSession {
 			await sleep(100);
 			left = left.filter(alive);
 		}
-		rmSync(this.agentDir, { recursive: true, force: true });
+		if (!this.keepAgentDir) rmSync(this.agentDir, { recursive: true, force: true });
 		return left;
 	}
 }

@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e revive</title>
+<style>#m{position:absolute;inset:0;display:grid;place-items:center;font:20px system-ui;background:#313244}</style>
+</head><body><div id="m">MARK-1</div>
+<script>
+// E2E: reports its marker on load (fresh JS state on every revive) and on every press.
+const mark = document.getElementById("m").textContent;
+pi.send({ loaded: mark });
+addEventListener("mousedown", () => pi.send({ pressed: mark }));
+</script></body></html>
