@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>counter</title>
+<style>body{display:flex;gap:8px;padding:6px}button{flex:1;font:18px system-ui;background:#313244;color:#cdd6f4;border:1px solid #585b70;border-radius:6px}</style>
+</head><body>
+<button id="a">A clicks: 0</button><button id="b">B clicks: 0</button>
+<script>
+for (const id of ["a", "b"]) { let n = 0; const el = document.getElementById(id); el.addEventListener("click", () => { el.textContent = id.toUpperCase() + " clicks: " + ++n; pi.send({ [id]: n }); }); }
+</script></body></html>

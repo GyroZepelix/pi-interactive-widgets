@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { BrowserHost } from "../src/browser.js";
-import { type Frame, SourceMissingError, WidgetPage, type WidgetPageOptions } from "../src/page.js";
+import { DEFAULT_PAGE_BG, type Frame, SourceMissingError, WidgetPage, type WidgetPageOptions } from "../src/page.js";
+import { decodePng, flattenPng } from "../src/png.js";
 import { FIXTURES, pngSize, processTree, sleep, until, waitGone } from "./helpers.js";
 
 // 90x18 cells at 8x17 CSS px per cell (16x34 device px at DPR 2).
@@ -165,6 +166,24 @@ describe("screencast, freeze, and input", () => {
 		assert.ok(w.lastFrame, "open resolves after the first frame");
 		assert.deepEqual(pngSize(w.lastFrame.data), { width: 1440, height: 612 });
 		assert.equal(w.lastFrame.data.slice(0, 8), "iVBORw0K", "PNG signature in base64");
+		await closeAll();
+	});
+
+	it("RQ05: a transparent page streams frames with alpha where it paints nothing; the default page is opaque", async () => {
+		const html = `<div style="position:absolute;left:0;top:0;width:100px;height:50px;background:#a6e3a1"></div><p style="position:absolute;left:200px;top:100px">text</p>`;
+		const pixel = (f: Frame | undefined, x: number, y: number): number[] => {
+			const img = decodePng(Buffer.from(f?.data ?? "", "base64"));
+			const i = (y * img.width + x) * 4;
+			return [...img.data.slice(i, i + 4)];
+		};
+		const clear = await widget({ source: { html }, transparent: true });
+		assert.equal(Buffer.from(clear.lastFrame?.data ?? "", "base64")[25], 6, "RGBA PNG");
+		assert.deepEqual(pixel(clear.lastFrame, 1000, 500), [0, 0, 0, 0], "unpainted area is fully transparent");
+		assert.deepEqual(pixel(clear.lastFrame, 20, 20), [166, 227, 161, 255], "painted elements stay opaque");
+		const shot = decodePng(Buffer.from(flattenPng(await clear.capture(1000), DEFAULT_PAGE_BG), "base64"));
+		assert.deepEqual([...shot.data.slice(-4)], [30, 30, 46, 255], "check_widget composites onto the page background");
+		const opaque = await widget({ source: { html } });
+		assert.deepEqual(pixel(opaque.lastFrame, 1000, 500), [30, 30, 46, 255], "default dark page background");
 		await closeAll();
 	});
 

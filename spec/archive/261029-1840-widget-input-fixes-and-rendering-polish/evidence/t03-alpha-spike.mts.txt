@@ -1,0 +1,22 @@
+import { BrowserHost } from "/Users/dgjalic/Documents/1-Projects/10-software-development/50-pi-extensions/pi-interactive-widgets/src/browser.ts";
+import { WidgetPage } from "/Users/dgjalic/Documents/1-Projects/10-software-development/50-pi-extensions/pi-interactive-widgets/src/page.ts";
+import { inflateSync } from "node:zlib";
+function info(b64: string) {
+  const b = Buffer.from(b64, "base64"); let o = 8; const idat: Buffer[] = []; let ct = -1, w = 0, h = 0;
+  while (o < b.length) { const len = b.readUInt32BE(o); const type = b.toString("latin1", o + 4, o + 8); const d = b.subarray(o + 8, o + 8 + len);
+    if (type === "IHDR") { w = d.readUInt32BE(0); h = d.readUInt32BE(4); ct = d[9]; } if (type === "IDAT") idat.push(d); o += 12 + len; }
+  let corner: number[] = [];
+  if (ct === 6) { const raw = inflateSync(Buffer.concat(idat)); corner = [...raw.subarray(1, 5)]; }
+  return { colorType: ct, hasAlpha: ct === 6 || ct === 4, w, h, firstPixelRGBA: corner };
+}
+const host = new BrowserHost({ dpr: 2 });
+const page = await WidgetPage.open(host, { source: { html: "<style>body{background:transparent}</style><p style='color:#cdd6f4;margin:0'>hi</p>" }, cssWidth: 200, cssHeight: 60 });
+const cdp = (page as any).cdp;
+console.log("default", JSON.stringify(info(page.lastFrame!.data)));
+await cdp.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
+await page.page.evaluate("document.body.style.background='transparent'; document.querySelector('p').textContent='hi2'");
+const f = await page.nextFrame(3000);
+console.log("override", JSON.stringify(info(f.data)));
+const shot = await page.capture(1000);
+console.log("captureScreenshot", JSON.stringify(info(shot)));
+await page.close(); await host.close();

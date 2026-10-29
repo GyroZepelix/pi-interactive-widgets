@@ -9,6 +9,7 @@ import {
 	ImageIdAllocator,
 	KittyImage,
 	MAX_CELLS,
+	RETIRE_DELAY_MS,
 	PLACEHOLDER,
 	placeholderLines,
 	uploadCommand,
@@ -152,6 +153,113 @@ describe("KittyImage", () => {
 
 		img.delete();
 		assert.deepEqual(apcs(unwrapTmux(writes.at(-1) ?? "")), [["a=d,d=I,i=321,q=2", ""]]);
+	});
+});
+
+describe("KittyImage double buffering (RQ04)", () => {
+	/** Target id of each upload in `writes`, or `del <id>` for deletes. */
+	const ops = (writes: string[]): string[] =>
+		writes.map((w) => {
+			const keys = apcs(unwrapTmux(w))[0]?.[0] ?? "";
+			const id = /i=(\d+)/.exec(keys)?.[1];
+			return keys.startsWith("a=d") ? `del ${id}` : `up ${id}`;
+		});
+	const color = (id: number): string => `\x1b[38;2;${(id >> 16) & 255};${(id >> 8) & 255};${id & 255}m`;
+
+	function setup() {
+		const writes: string[] = [];
+		const timers: (() => void)[] = [];
+		let switches = 0;
+		const img = new KittyImage([11, 22], { tmux: true }, (d) => writes.push(d), {
+			onSwitch: () => switches++,
+			setTimer: (fn, ms) => {
+				assert.equal(ms, RETIRE_DELAY_MS);
+				timers.push(fn);
+			},
+		});
+		const fire = (): void => {
+			for (const t of timers.splice(0)) t();
+		};
+		return { img, writes, timers, fire, switches: () => switches };
+	}
+
+	it("alternates ids: each new frame goes to the id the rows do not show, and the rows switch to it", () => {
+		const { img, writes, switches } = setup();
+		assert.deepEqual(img.ids, [11, 22]);
+		img.send(b64(100), 10, 2);
+		assert.equal(img.id, 11, "the first frame uses the first id");
+		assert.ok(img.lines(10, 2)[0]?.startsWith(color(11)));
+		img.send(b64(101), 10, 2);
+		assert.equal(img.id, 22);
+		assert.ok(img.lines(10, 2)[0]?.startsWith(color(22)), "rows switch to the spare id");
+		img.send(b64(102), 10, 2);
+		assert.ok(img.lines(10, 2)[0]?.startsWith(color(11)));
+		assert.deepEqual(ops(writes), ["up 11", "up 22", "up 11"]);
+		assert.equal(switches(), 3, "every new frame asks for the rows to be rendered again");
+	});
+
+	it("never uploads to the id the rows show while a switch is pending", () => {
+		const { img, writes } = setup();
+		img.send(b64(100), 10, 2);
+		img.lines(10, 2);
+		img.send(b64(101), 10, 2);
+		img.send(b64(102), 10, 2); // no render in between: still the spare
+		assert.deepEqual(ops(writes), ["up 11", "up 22", "up 22"]);
+		assert.ok(img.lines(10, 2)[0]?.startsWith(color(22)));
+	});
+
+	it("deletes the previous image after the switch, unless it was reused meanwhile", () => {
+		const { img, writes, timers, fire } = setup();
+		img.send(b64(100), 10, 2);
+		img.lines(10, 2);
+		img.send(b64(101), 10, 2);
+		assert.equal(timers.length, 0, "nothing is deleted before the rows switched");
+		img.lines(10, 2);
+		assert.equal(timers.length, 1);
+		fire();
+		assert.deepEqual(ops(writes), ["up 11", "up 22", "del 11"], "the previous image is deleted after the switch");
+
+		img.send(b64(102), 10, 2); // to 11 again
+		img.lines(10, 2); // switch to 11: retire 22
+		img.send(b64(103), 10, 2); // 22 reused before its delete fired
+		fire();
+		assert.deepEqual(ops(writes).slice(3), ["up 11", "up 22"], "a reused id is not deleted");
+		img.lines(10, 2);
+		img.lines(10, 2); // a render without a new frame does not retire anything
+		assert.equal(timers.length, 1);
+		fire();
+		assert.deepEqual(ops(writes).slice(5), ["del 11"]);
+	});
+
+	it("scaled and recovery re-sends go to the id the rows show, without a switch", () => {
+		const { img, writes, switches } = setup();
+		img.send(b64(100), 10, 2);
+		img.lines(10, 2);
+		img.send(b64(101), 10, 2);
+		img.lines(10, 2); // rows show 22
+		const before = switches();
+		assert.equal(img.resend(5, 1), true, "scaled send");
+		assert.equal(img.resend(5, 1), true, "recovery re-send");
+		assert.deepEqual(ops(writes).slice(2), ["up 22", "up 22"]);
+		const cmds = apcs(unwrapTmux(writes[2] ?? ""));
+		assert.match(cmds[0]?.[0] ?? "", /i=22,c=5,r=1,/);
+		assert.equal(cmds.map(([, p]) => p).join(""), b64(101), "the newest frame");
+		assert.equal(switches(), before);
+		assert.ok(img.lines(5, 1)[0]?.startsWith(color(22)));
+		assert.equal(img.send(b64(101), 5, 1), false, "identical frame at the scaled size is skipped");
+		img.send(b64(102), 5, 1);
+		assert.deepEqual(ops(writes).slice(4), ["up 11"], "the next frame still goes to the spare");
+	});
+
+	it("before the first render every upload uses the first id; delete removes both buffers", () => {
+		const { img, writes } = setup();
+		img.send(b64(100), 10, 2);
+		img.resend(10, 2);
+		img.send(b64(101), 10, 2);
+		assert.deepEqual(ops(writes), ["up 11", "up 11", "up 11"]);
+		img.delete();
+		assert.deepEqual(ops(writes).slice(3), ["del 11", "del 22"]);
+		assert.equal(img.retained, false);
 	});
 });
 

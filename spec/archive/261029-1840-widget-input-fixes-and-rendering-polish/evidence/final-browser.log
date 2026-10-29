@@ -1,0 +1,65 @@
+
+> pi-interactive-widgets@0.1.0 test:browser
+> node --import tsx --test --test-concurrency=1 tests/*.browser.test.ts
+
+▶ check_widget capture (AC04)
+  ✔ a live page gives a fresh PNG whose long edge is at most 1000 px (149.889417ms)
+  ℹ live capture 1000x425
+  ✔ a frozen page is captured without thawing: it stays frozen and minimized and casts no frames (715.731917ms)
+  ℹ frozen capture 1000x425
+✔ check_widget capture (AC04) (866.2805ms)
+▶ check_widget layout probe (AC05)
+  ✔ lists the overflowing and clipped elements and a scroll size larger than the viewport (68.346667ms)
+  ℹ {"viewport":{"width":720,"height":306},"scroll":{"width":720,"height":624},"issues":[{"el":"span#wide","x":0,"y":0,"w":400,"h":20,"why":"clipped by div.box (overflow: hidden)"},{"el":"div#tall","x":0,"y":124,"w":720,"h":500,"why":"beyond the viewport (bottom by 318 px)"}],"total":2}
+  ✔ reports none on a clean page with a scrolling log (47.58225ms)
+  ✔ the probe runs in an isolated world the page cannot see (45.5475ms)
+✔ check_widget layout probe (AC05) (161.737875ms)
+▶ default policy
+  ✔ loads an allowlisted CDN script and blocks a non-allowlisted script and an external fetch (804.907709ms)
+  ✔ makes WebRTC unavailable and blocks navigation away, popups, and form submissions (1167.0085ms)
+✔ default policy (1974.853375ms)
+▶ open policy
+  ✔ allows an external fetch and keeps localhost, private, and Tailscale addresses blocked (905.940667ms)
+  ✔ U2: Chrome's Local Network Access blocks a public name that resolves to loopback (second layer) (689.2595ms)
+  ℹ U2 open-mode fetch to lvh.me (resolves to 127.0.0.1): error TypeError; extension blocks: []
+  ✔ listed local hosts are reachable in open and default mode (1400.361375ms)
+  ✔ open mode with a listed local host blocks a WebSocket to an unlisted local address (RQ09 correction) (694.556417ms)
+  ✔ leaves no process started by the tests (0.269ms)
+✔ open policy (3690.795208ms)
+▶ serving (U1) and injection
+  ✔ U1: synthetic https origin gives a secure context, localStorage, ES modules, and workers (168.007666ms)
+  ℹ U1 {"secure":true,"origin":"https://w-ac5f77126e4b.pi-widget.invalid","module":42,"localStorage":"v","worker":"classic true dep","moduleWorker":"module true 42","data":{"ok":true},"css":"dashed"}
+  ✔ inline fragments load in the shell with base CSS, theme variables, and dark scheme (150.356291ms)
+  ✔ serves full documents as written and lets author CSS win over the base layer (155.318041ms)
+  ✔ confines path widgets to the entry folder, including through symlinks (175.868708ms)
+  ✔ rejects a missing entry file before opening a page (0.90825ms)
+  ✔ captures JS errors (161.249667ms)
+✔ serving (U1) and injection (812.391416ms)
+▶ bridge
+  ✔ rejects pi.submit without user activation and accepts it after a dispatched click (288.346292ms)
+  ✔ queues pi.send within size and count caps (151.38225ms)
+✔ bridge (439.934667ms)
+▶ screencast, freeze, and input
+  ✔ streams full-resolution 1440x612 PNG frames for a 90x18-cell widget at DPR 2 (153.420083ms)
+  ✔ RQ05: a transparent page streams frames with alpha where it paints nothing; the default page is opaque (290.732708ms)
+  ✔ produces no frames for an unchanged page (1972.240416ms)
+  ✔ paces an animating page to at most 10 fps (2377.64725ms)
+  ℹ frames in 2 s: 17 (8.5 fps), min gap 112.4 ms
+  ✔ freezes by minimizing (no frames) and thaws to a new frame within about 50 ms (5229.96225ms)
+  ℹ thaw to first frame ms: 10.0, 5.6, 11.7, 6.7, 8.8
+  ✔ two pages have their own windows: freezing one leaves the other streaming (02.02 discovery) (1548.303041ms)
+  ✔ thaws a static page to a new frame (165.584584ms)
+  ✔ lands all 18 grid clicks and a 60-click burst during streaming (1149.647709ms)
+  ✔ delivers wheel, typed text, and special keys (209.038083ms)
+✔ screencast, freeze, and input (13097.095667ms)
+▶ lifecycle
+  ✔ closing the last page closes the browser and leaves no process started by the tests (220.669042ms)
+✔ lifecycle (220.762666ms)
+ℹ tests 30
+ℹ suites 8
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 22147.345125

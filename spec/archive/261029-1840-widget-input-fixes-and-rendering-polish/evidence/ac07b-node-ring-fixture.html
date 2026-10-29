@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>node ring</title>
+<style>html,body{margin:0;height:100%;background:radial-gradient(circle at 50% 50%,#313244,#1e1e2e 70%);color:#cdd6f4;font:13px system-ui}svg{position:absolute;inset:0;width:100%;height:100%}#t{position:absolute;left:10px;top:6px}</style>
+</head><body><div id="t">node ring</div>
+<svg id="s" viewBox="0 0 720 340"><defs>
+<radialGradient id="ng"><stop offset="0" stop-color="#f5c2e7"/><stop offset="1" stop-color="#89b4fa"/></radialGradient>
+<linearGradient id="lg"><stop offset="0" stop-color="#94e2d5"/><stop offset="1" stop-color="#cba6f7"/></linearGradient></defs>
+<g id="lines" stroke="url(#lg)" stroke-width="1.5" opacity="0.7"></g><g id="nodes"></g></svg>
+<script>
+// Manual AC07b fixture: a rotating ring of 24 labeled nodes with connecting lines, gradients, and text.
+const N = 24, lines = document.getElementById("lines"), nodes = document.getElementById("nodes"), title = document.getElementById("t");
+const ns = "http://www.w3.org/2000/svg", el = (n, p) => { const e = document.createElementNS(ns, n); p.appendChild(e); return e; };
+const L = [], C = [], T = [];
+for (let i = 0; i < N; i++) for (const j of [i + 1, i + 5, i + 11]) L.push([i, j % N, el("line", lines)]);
+for (let i = 0; i < N; i++) { const c = el("circle", nodes); c.setAttribute("fill", "url(#ng)"); C.push(c); const t = el("text", nodes); t.setAttribute("fill", "#cdd6f4"); t.setAttribute("font-size", "11"); t.textContent = "n" + i; T.push(t); }
+let t0 = performance.now(), k = 0;
+function frame(now) {
+  const a0 = (now - t0) / 2000, P = [];
+  for (let i = 0; i < N; i++) { const a = a0 + (i / N) * Math.PI * 2, r = 120 + 18 * Math.sin(a0 * 3 + i); P.push([360 + Math.cos(a) * r * 1.9, 170 + Math.sin(a) * r]); }
+  for (const [i, j, l] of L) { l.setAttribute("x1", P[i][0]); l.setAttribute("y1", P[i][1]); l.setAttribute("x2", P[j][0]); l.setAttribute("y2", P[j][1]); }
+  for (let i = 0; i < N; i++) { C[i].setAttribute("cx", P[i][0]); C[i].setAttribute("cy", P[i][1]); C[i].setAttribute("r", 9 + 4 * Math.sin(a0 * 4 + i)); T[i].setAttribute("x", P[i][0] + 12); T[i].setAttribute("y", P[i][1] + 4); }
+  title.textContent = "node ring \u00b7 frame " + ++k;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>

@@ -34,3 +34,11 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/terminal-graphics-tmux.md` (promoted the dedicated tmux window observation into Test tooling), `wiki/observations.md` (promoted observation removed).
 - Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
 - Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change.
+
+## [2026-10-29] dream | Gamemaster checkpoint 261029-1840-widget-input-fixes-and-rendering-polish/direct
+
+- Trigger: Dream run for "Gamemaster checkpoint: 261029-1840-widget-input-fixes-and-rendering-polish/direct".
+- Inputs: current implementation session; `spec/archive/261029-1840-widget-input-fixes-and-rendering-polish/` (plan.md Decision log, verification.md, outcome.md); `src/rawinput.ts`, `src/kitty.ts`, `tests/e2e/lib.ts`; Ghostty v1.4.0 `src/terminal/kitty/graphics_exec.zig`; pi-tui 1.4.0 `tui.js` and `tui-alt-screen.js`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md` (double-buffered frames, new "Pi mouse input" section, `locate` buffer ids, window re-check before harness runs, scope line).
+- Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
+- Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change; no observation added.

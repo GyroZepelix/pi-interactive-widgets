@@ -218,7 +218,8 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		if (!interactive(ctx)) return;
 		// The TUI (focus, mode, renders) is only reachable through UI factories; capture it with a transient widget.
 		ctx.ui.setWidget(PROBE, (tui) => {
-			state.tui = tui;
+			// Also installs the raw input hook ahead of Pi's viewport listener (RQ01, RQ02).
+			manager.attach(tui);
 			devLog({ ev: "tui", mode: tui.mode });
 			setTimeout(() => ctx.ui.setWidget(PROBE, undefined), 0);
 			return { render: () => [], invalidate() {} };

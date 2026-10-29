@@ -45,11 +45,12 @@ The model sees only what it needs at all times; the detailed authoring guide is 
 
 ### Interacting
 
-- **Under tmux, click to interact.** Pi enables only button-motion mouse tracking inside tmux (and Zellij or screen), so a widget never sees the pointer just hovering. A click wakes a paused widget, focuses it, and reaches the page. The title line says "click to interact".
+- **Under tmux, click to interact.** Pi enables only button-motion mouse tracking inside tmux (and Zellij or screen), so a widget never sees the pointer just hovering. A single click wakes a paused widget, focuses it, and reaches the page, so the control under the pointer reacts to that first click. A click on a closed widget's still reopens it and replays the click on the reopened page once it has loaded. The title line says "click to interact".
 - **Plain Ghostty:** hovering also wakes a widget; the title says "hover or click to interact".
 - While a widget is focused, keys go to the page (special keys, text, kitty CSI-u). **Escape**, **Ctrl+C**, or a click elsewhere releases it. Pi's own scroll keys (`tui.altScreen.*`, for example `ctrl+u` and `ctrl+d` if bound) keep scrolling the transcript.
-- The mouse wheel over an unfocused widget scrolls the transcript; over a focused widget it scrolls the page.
+- The mouse wheel over an unfocused widget scrolls the transcript; over a focused widget it scrolls the page. Sideways scrolling (macOS trackpads send it while scrolling) never focuses or wakes a widget; over a focused widget it scrolls the page horizontally.
 - The extension never changes the terminal's mouse mode.
+- **Raw input hook (relies on Pi internals):** in fullscreen mode Pi consumes every mouse sequence before extension input handlers (`ctx.ui.onTerminalInput`) see them. To catch sideways scrolling and clicks outside a focused widget, the extension puts one input listener at the front of Pi's TUI listener list, a private pi-tui field (`inputListeners`). It only reads or drops mouse sequences and never patches Pi. If a Pi update removes that field, the hook is skipped: sideways scrolling still never focuses a widget, but a click elsewhere no longer releases a focused widget (use Escape).
 
 ### Writing widgets (advice for prompts and hand-written pages)
 
@@ -59,6 +60,8 @@ The agent-facing version of this advice is [`guide/widgets.md`](guide/widgets.md
 - Input is cell-precise (about 8x17 CSS px per cell at the default DPR), so make click targets at least about 24 px.
 - **Do not depend on hover.** Under tmux the page sees pointer moves only while a button is held, so `:hover` styles and hover tooltips do not track the pointer. Use click-triggered menus, tooltips, and details instead.
 - In-page `<select>` works; native pickers (`input type=date`, `time`, `color`, `month`, `week`) do not. Build custom controls.
+- Leave the page background unset. Widget pages are transparent, so they blend into the terminal background (with a light Pi theme they keep the dark default background instead). Give cards and panels their own background. `check_widget` images show transparent areas on that dark default.
+- Make visual elements clickable where it helps (click a variant to highlight it, click a diagram to step it), and keep decisions in text or `ask_user_question`.
 - Pi theme colors are available as CSS variables: `--pi-accent`, `--pi-muted`, `--pi-dim`, `--pi-border`, `--pi-success`, `--pi-error`, `--pi-warning` (and `--pi-fg` on dark themes).
 
 ### Bridge
@@ -73,7 +76,7 @@ The agent-facing version of this advice is [`guide/widgets.md`](guide/widgets.md
 - A new widget you do not touch pauses 10 s after it appears; a hover-woken widget 10 s after the last pointer move; releasing a focused widget pauses it immediately; a focused widget pauses after 5 min without input (the next key or click wakes it). Paused widgets keep showing their last frame.
 - At most 5 widget pages stay open per session; opening another closes the least recently used paused one. A page paused for 30 min closes. The browser exits when no pages remain.
 - A closed widget keeps its still image and reopens on click with fresh JS state: inline widgets from the original tool arguments, path widgets from the current file. A missing or unreadable file shows `source file missing: <path>`.
-- After a Pi restart, `/resume`, or `/reload`, each widget row shows one placeholder line ("click to load") until clicked. Page state is never persisted; send anything important through the bridge.
+- After a Pi restart, `/resume`, or `/reload`, each widget row shows one placeholder line ("click to load") until clicked. That click only loads the widget; the next click reaches its controls. Page state is never persisted; send anything important through the bridge.
 - In narrow panes a widget is shown scaled to fit (its page layout does not change) and clicks are mapped to match; widening restores full size.
 
 ### Recovery
@@ -117,6 +120,8 @@ Optional file: `~/.pi/agent/extensions/pi-interactive-widgets/config.json` (the 
 - Widgets drawn while their tmux window is hidden stay blank until clicked or `/widgets-refresh` (see Recovery).
 - A widget never uses the last column of the pane: under tmux a placeholder cell there loses its position marks, so a widget as wide as the pane is scaled down by one column.
 - Widgets do not animate while paused, and page state does not survive close, restart, or resume.
+- Animation frames alternate between two image ids per widget (double buffering), so the old frame stays visible while the next one uploads; the live widget briefly holds two images in terminal memory.
+- The fullscreen input hook relies on a private Pi field (see Interacting) and may stop working after a Pi update.
 - If Pi is killed with `kill -9`, Chromium exits with it, but its temporary profile folder (`$TMPDIR/puppeteer_dev_chrome_profile-*`, a few MB) is left behind for macOS to clean up.
 
 ## Development

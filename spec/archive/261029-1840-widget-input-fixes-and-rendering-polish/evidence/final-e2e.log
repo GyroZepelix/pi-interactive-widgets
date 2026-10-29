@@ -1,0 +1,66 @@
+
+> pi-interactive-widgets@0.1.0 test:e2e
+> node --import tsx --test --test-concurrency=1 tests/e2e/*.e2e.ts
+
+▶ guide pointer and check_widget (dev timers: idle 4 s, close 3 s)
+  ✔ AC03: show_widget results carry the guide pointer until the guide was read (2842.258792ms)
+  ✔ AC04: a frozen widget is captured without waking or focusing it; a closed one shows its still without revive (4348.173542ms)
+✔ guide pointer and check_widget (dev timers: idle 4 s, close 3 s) (8259.383792ms)
+▶ run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, focus 2.5 s)
+  ✔ AC06: a new widget freezes after the idle time from creation; a focused one after the focus time without input (4788.751791ms)
+  ℹ idle freeze 1502 ms after creation; focused freeze 2438 ms after the last input
+  ✔ AC06: making widget B live freezes widget A immediately (2583.783833ms)
+  ℹ B frozen 1 ms before A live
+  ✔ AC03 and AC07: at most 5 pages; the least recently used frozen page closes; a click revives it warm with fresh JS state and reaches its button once (RQ03 AC03b) (2796.594417ms)
+  ℹ revive 44 ms (warm), press to revived 47 ms
+  ✔ AC12 and AC13: a narrow pane scales the widget to fit with clicks still hitting; widening restores full size; resizes re-send stills (3477.998625ms)
+  ℹ narrow: 60x9 shown as 40x6 (scale 0.667); 18/18 hits
+  ✔ AC13: /widgets-refresh re-sends every retained still (358.255542ms)
+✔ run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, focus 2.5 s) (14958.934791ms)
+▶ close timer, browser exit, and revive from the current file (dev timers: idle 1 s, close 2.5 s)
+  ✔ AC03: a page frozen for the close time closes and the browser exits when no pages remain (4041.513625ms)
+  ✔ AC07: a path widget revives from the current file; a deleted file shows source file missing with the still (3766.998208ms)
+  ℹ cold revive 125 ms
+  ✔ AC07: an inline tool widget revives from its tool arguments (5195.330917ms)
+✔ close timer, browser exit, and revive from the current file (dev timers: idle 1 s, close 2.5 s) (13947.390291ms)
+▶ resume and restart (AC07) and kill -9 (AC03)
+  ✔ after a restart with the session continued, the widget row shows a placeholder line until clicked, then revives (5372.384166ms)
+  ℹ session_start reason startup
+  ℹ cold revive after restart 130 ms
+  ✔ RQ17: /reload releases the pages and the browser; the row then shows the placeholder line and revives on click (2521.233292ms)
+  ✔ kill -9 of Pi leaves no Chromium process it started (1377.943375ms)
+  ℹ killed Pi 28214; 4 browser processes exited
+✔ resume and restart (AC07) and kill -9 (AC03) (9272.393042ms)
+▶ fullscreen session: input, focus, scrolling, bridge, tool
+  ✔ AC05: 18 target clicks and a 60-click burst all hit (3709.254166ms)
+  ✔ PD09: under tmux a click wakes a frozen widget and reaches the page; release freezes it immediately (1169.30475ms)
+  ℹ release to frozen 1 ms; thaw start to first frame 4 ms; live to page press 0 ms
+  ✔ AC05: typed keys reach a focused input; ctrl+u and ctrl+d scroll while focused; Escape releases (2562.452542ms)
+  ✔ AC08: pi.send arrives with the next user turn; pi.submit needs activation and delivers immediately (5160.179959ms)
+  ✔ RQ01: the agent's show_widget call renders and returns id, size, viewport, blocked requests, and errors (928.628583ms)
+✔ fullscreen session: input, focus, scrolling, bridge, tool (14472.228625ms)
+▶ input fixes: horizontal wheel, click outside, single click (RQ01-RQ03; dev timers: idle 1.5 s)
+  ✔ AC01: horizontal wheel over an unfocused widget never wakes, focuses, or presses it; vertical wheel scrolls the transcript (7949.147958ms)
+  ✔ AC01: over a focused widget horizontal and vertical wheel scroll the page, not the transcript (480.451625ms)
+  ✔ AC02: a press on the transcript outside the focused widget releases it like Escape; data arrives with the next prompt (927.192791ms)
+  ✔ AC03a: a single click on a frozen widget's button reaches the page once (659.245417ms)
+  ✔ AC02: a press on a second widget makes it live and focused and freezes the first; releasing it restores the editor (1403.06975ms)
+✔ input fixes: horizontal wheel, click outside, single click (RQ01-RQ03; dev timers: idle 1.5 s) (12371.449292ms)
+▶ regular mode session (AC11)
+  ✔ shows the still plus hint in regular mode and becomes interactive after switching to fullscreen (2297.389333ms)
+✔ regular mode session (AC11) (3262.904083ms)
+▶ unsupported terminal (AC14 partial)
+  ✔ shows the notice with the title and tells the agent, without starting a browser (1391.775417ms)
+✔ unsupported terminal (AC14 partial) (2340.15875ms)
+▶ failures without crashing Pi (AC15)
+  ✔ an invalid config produces a notice and the defaults apply (1415.452625ms)
+  ✔ a missing Chromium binary produces a notice with the install command; Pi keeps running (2943.692ms)
+✔ failures without crashing Pi (AC15) (4359.353958ms)
+ℹ tests 27
+ℹ suites 9
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83417.028291

@@ -24,6 +24,10 @@ describe("baseCss", () => {
 		assert.doesNotMatch(css, /--bad|--pi-x/);
 		assert.match(css, /select \{ appearance: base-select; \}/);
 	});
+	it("RQ05: a transparent page leaves the body background unset unless the theme sets --pi-bg", () => {
+		assert.match(baseCss({}, true), /body \{ background: var\(--pi-bg, transparent\);/);
+		assert.match(baseCss({}), /body \{ background: var\(--pi-bg, #1e1e2e\);/);
+	});
 });
 
 describe("findChromeHeadlessShell", () => {

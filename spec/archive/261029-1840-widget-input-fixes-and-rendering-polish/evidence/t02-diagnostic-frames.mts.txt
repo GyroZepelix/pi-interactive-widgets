@@ -1,0 +1,13 @@
+import { resolve } from "node:path";
+import { BrowserHost } from "/Users/dgjalic/Documents/1-Projects/10-software-development/50-pi-extensions/pi-interactive-widgets/src/browser.ts";
+import { WidgetPage } from "/Users/dgjalic/Documents/1-Projects/10-software-development/50-pi-extensions/pi-interactive-widgets/src/page.ts";
+import { CHUNK_SIZE, uploadCommand } from "/Users/dgjalic/Documents/1-Projects/10-software-development/50-pi-extensions/pi-interactive-widgets/src/kitty.ts";
+const host = new BrowserHost({ dpr: 2 });
+const sizes: number[] = []; const gaps: number[] = []; let last = 0;
+const page = await WidgetPage.open(host, { source: { path: resolve("/tmp/piw-manual/ring.html") }, cssWidth: 90 * 8, cssHeight: 20 * 17, onFrame: (f) => { sizes.push(f.data.length); if (last) gaps.push(f.at - last); last = f.at; } });
+await new Promise((r) => setTimeout(r, 3000));
+await page.close(); await host.close();
+const med = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+const b64 = med(sizes);
+const cmd = uploadCommand(1, "A".repeat(b64), 90, 18, { tmux: true });
+console.log(JSON.stringify({ frames: sizes.length, medianBase64Kb: Math.round(b64 / 1024), chunksPerFrame: Math.ceil(b64 / CHUNK_SIZE), uploadBytesKb: Math.round(cmd.length / 1024), medianFrameGapMs: Math.round(med(gaps)) }));

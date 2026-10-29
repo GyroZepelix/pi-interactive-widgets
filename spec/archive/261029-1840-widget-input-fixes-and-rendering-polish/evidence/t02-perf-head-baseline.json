@@ -1,0 +1,96 @@
+{
+  "pass": true,
+  "active": {
+    "pass": true,
+    "limitPercent": 40,
+    "medianMarginalCpuPercent": 34.41,
+    "medianTotalCpuPercent": 36.7,
+    "baseline": {
+      "windowMs": 10000,
+      "tmux": 1.99,
+      "ghostty": 0.3
+    },
+    "runs": [
+      {
+        "marginalCpuPercent": 34.91,
+        "totalCpuPercent": 37.2,
+        "fps": 8.6,
+        "avgFrameKb": 27.4,
+        "browser": {
+          "cpuPercent": 24.73,
+          "rssMb": 303.39,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 1.1,
+          "rssMb": 121.94,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 2.69,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 8.68,
+          "rssMb": 486.09,
+          "pids": 1
+        }
+      },
+      {
+        "marginalCpuPercent": 34.4,
+        "totalCpuPercent": 36.69,
+        "fps": 8.6,
+        "avgFrameKb": 27.7,
+        "browser": {
+          "cpuPercent": 24.63,
+          "rssMb": 307.39,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 1,
+          "rssMb": 122.17,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 2.49,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 8.57,
+          "rssMb": 486.08,
+          "pids": 1
+        }
+      },
+      {
+        "marginalCpuPercent": 34.41,
+        "totalCpuPercent": 36.7,
+        "fps": 8.6,
+        "avgFrameKb": 27.6,
+        "browser": {
+          "cpuPercent": 24.53,
+          "rssMb": 304.31,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 0.9,
+          "rssMb": 122.69,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 2.59,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 8.68,
+          "rssMb": 486.08,
+          "pids": 1
+        }
+      }
+    ]
+  },
+  "browserPidsStarted": 4,
+  "browserPidsLeft": []
+}

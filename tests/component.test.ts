@@ -3,15 +3,16 @@ import { describe, it } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
 import { cellToCss, interactHint, maxGridCols, noticeLine, WHEEL_PX, WidgetComponent } from "../src/component.js";
-import { PLACEHOLDER } from "../src/kitty.js";
+import { PLACEHOLDER, placeholderLines } from "../src/kitty.js";
 import type { WidgetDetails, WidgetManager } from "../src/manager.js";
 import { widgetSize } from "../src/manager.js";
 
 const details: WidgetDetails = { id: "w1", imageId: 0x123456, title: "grid", cols: 60, rows: 10, cssWidth: 480, cssHeight: 170, cssCell: { width: 8, height: 17 }, source: "html" };
 const theme = { fg: (_c: string, t: string) => t } as unknown as Theme;
 
-function setup(fullscreen = true, hoverReported = false) {
+function setup(fullscreen = true, hoverReported = false, rawInputHooked = true) {
 	const calls: { what: string; arg?: unknown }[] = [];
+	const viewportTop = { value: 0 };
 	const editor = { render: () => [], invalidate() {} };
 	const widget = {
 		buttons: 0,
@@ -19,7 +20,7 @@ function setup(fullscreen = true, hoverReported = false) {
 		closed: false,
 		reviving: undefined as unknown,
 		problem: undefined as string | undefined,
-		image: { id: 0x123456, retained: true },
+		image: { id: 0x123456, retained: true, lines: (cols: number, rows: number) => placeholderLines(0x123456, cols, rows) },
 		mouse: (ev: unknown) => calls.push({ what: "mouse", arg: ev }),
 		wheel: (ev: unknown) => calls.push({ what: "wheel", arg: ev }),
 		keys: (ev: unknown) => calls.push({ what: "keys", arg: ev }),
@@ -28,19 +29,23 @@ function setup(fullscreen = true, hoverReported = false) {
 	const manager = {
 		fullscreen,
 		hoverReported,
+		rawInputHooked,
+		viewportTop: () => viewportTop.value,
+		pressSeen: (_w: unknown, inRows: boolean) => calls.push({ what: "pressSeen", arg: inRows }),
+		focusTarget: () => editor,
 		state: {},
 		get: (id: string) => (id === "w1" ? widget : undefined),
 		pointer: (_w: unknown, kind: string) => calls.push({ what: "pointer", arg: kind }),
 		input: () => calls.push({ what: "input" }),
 		setDisplay: (_w: unknown, box: unknown) => calls.push({ what: "display", arg: box }),
-		revive: (d: { id: string }, source: unknown) => calls.push({ what: "revive", arg: { id: d.id, source } }),
+		revive: (d: { id: string }, source: unknown, replay: unknown) => calls.push({ what: "revive", arg: { id: d.id, source, ...(replay ? { replay } : {}) } }),
 		focusedComponent: () => editor,
 		focused: () => calls.push({ what: "focused" }),
 		blurred: () => calls.push({ what: "blurred" }),
 		releaseFocus: () => calls.push({ what: "releaseFocus" }),
 		observeRender: () => {},
 	} as unknown as WidgetManager;
-	return { c: new WidgetComponent(details, theme, manager), calls, widget, editor };
+	return { c: new WidgetComponent(details, theme, manager), calls, widget, editor, viewportTop };
 }
 
 const ev = (type: TuiMouseEvent["type"], x: number, y: number, extra: Partial<TuiMouseEvent> = {}): TuiMouseEvent => ({
@@ -82,7 +87,7 @@ describe("mouse mapping", () => {
 		assert.equal(widget.prevFocus, editor);
 		assert.deepEqual(calls.find((x) => x.what === "mouse")?.arg, { type: "mousePressed", x: 44, y: 42.5, button: "left", buttons: 1, clickCount: 1, modifiers: 0 });
 		assert.deepEqual(
-			calls.filter((x) => x.what !== "display").slice(0, 2).map((x) => [x.what, x.arg && typeof x.arg === "object" ? "event" : x.arg]),
+			calls.filter((x) => x.what !== "display" && x.what !== "pressSeen").slice(0, 2).map((x) => [x.what, x.arg && typeof x.arg === "object" ? "event" : x.arg]),
 			[
 				["pointer", "press"],
 				["mouse", "event"],
@@ -107,6 +112,48 @@ describe("mouse mapping", () => {
 		c.focused = true;
 		assert.deepEqual(c.handleMouse(ev("wheel", 3, 3, { wheelDelta: -2 })), { handled: true, render: false });
 		assert.equal((calls.find((x) => x.what === "wheel")?.arg as { deltaY: number }).deltaY, -2 * WHEEL_PX);
+	});
+	it("RQ02: reports every press on the row's lines to the manager, inside or outside the grid", () => {
+		const { c, calls } = setup();
+		c.render(80);
+		c.handleMouse(ev("press", 70, 0));
+		c.handleMouse(ev("press", 5, 3));
+		c.handleMouse(ev("press", 5, 30));
+		assert.deepEqual(
+			calls.filter((x) => x.what === "pressSeen").map((x) => x.arg),
+			[true, true, false],
+		);
+	});
+	it("RQ01: maps screen cells to CSS points from the last dispatched event, following transcript scrolling", () => {
+		const { c, viewportTop } = setup();
+		c.render(80);
+		assert.equal(c.cssAtScreen(5, 3), undefined, "no position before Pi dispatched an event here");
+		c.handleMouse(ev("release", 5, 3, { screenX: 7, screenY: 13 })); // row origin at screen (2, 10)
+		assert.deepEqual(c.cssAtScreen(7, 13), { x: 44, y: 42.5 });
+		assert.equal(c.cssAtScreen(7, 10), undefined, "title line");
+		assert.equal(c.cssAtScreen(63, 13), undefined, "right of the grid");
+		viewportTop.value = 4; // the transcript scrolled down by 4 lines: the row moved up
+		assert.deepEqual(c.cssAtScreen(7, 9), { x: 44, y: 42.5 });
+	});
+	it("fallback without the raw input hook: trackpad presses (right, none) never focus, press, or revive an unfocused widget", () => {
+		const { c, calls, widget } = setup(true, false, false);
+		c.render(80);
+		assert.equal(c.handleMouse(ev("press", 5, 3, { button: "right" })), undefined);
+		assert.equal(c.handleMouse(ev("press", 5, 3, { button: "none" })), undefined);
+		assert.equal(calls.some((x) => x.what === "pointer" || x.what === "mouse"), false);
+		widget.closed = true;
+		c.render(80);
+		assert.equal(c.handleMouse(ev("press", 5, 3, { button: "none" })), undefined);
+		assert.equal(calls.some((x) => x.what === "revive"), false);
+		widget.closed = false;
+		assert.deepEqual(c.handleMouse(ev("press", 5, 3)), { focus: true, capture: true, render: true }, "a left click still works");
+		c.focused = true;
+		assert.deepEqual(c.handleMouse(ev("press", 5, 3, { button: "right" })), { focus: true, capture: true, render: true }, "a focused widget gets right presses");
+	});
+	it("with the hook installed a right press still focuses (codes 66 and 67 never get here)", () => {
+		const { c } = setup();
+		c.render(80);
+		assert.deepEqual(c.handleMouse(ev("press", 5, 3, { button: "right" })), { focus: true, capture: true, render: true });
 	});
 	it("does not take mouse input in regular mode", () => {
 		const { c } = setup(false);
@@ -177,7 +224,14 @@ describe("rendering", () => {
 		assert.match(lines[0] ?? "", /◇ grid · closed · click to reopen/);
 		assert.equal(lines.length, 11, "the RAM still stays shown");
 		assert.deepEqual(c.handleMouse(ev("press", 5, 3)), { handled: true, render: true });
-		assert.deepEqual(calls.filter((x) => x.what === "revive").map((x) => x.arg), [{ id: "w1", source: undefined }]);
+		assert.deepEqual(
+			calls.filter((x) => x.what === "revive").map((x) => x.arg),
+			[{ id: "w1", source: undefined, replay: { x: 44, y: 42.5, button: "left", modifiers: 0 } }],
+			"RQ03: a click on the shown still is replayed at the same CSS point after the revive",
+		);
+		calls.length = 0;
+		assert.deepEqual(c.handleMouse(ev("press", 5, 0)), { handled: true, render: true });
+		assert.deepEqual(calls.filter((x) => x.what === "revive").map((x) => x.arg), [{ id: "w1", source: undefined }], "a click on the title line revives without a replay");
 		assert.equal(calls.some((x) => x.what === "mouse" || x.what === "pointer"), false, "nothing reaches a closed page");
 		widget.problem = "source file missing: /tmp/x.html";
 		const failed = c.render(80);
@@ -191,13 +245,15 @@ describe("rendering", () => {
 			fullscreen: true,
 			get: () => undefined,
 			observeRender() {},
-			revive: (d: { id: string }, source: unknown) => calls.push({ what: "revive", arg: { id: d.id, source } }),
+			rawInputHooked: true,
+			viewportTop: () => 0,
+			revive: (d: { id: string }, source: unknown, replay: unknown) => calls.push({ what: "revive", arg: { id: d.id, source, ...(replay ? { replay } : {}) } }),
 		} as unknown as WidgetManager;
 		const c = new WidgetComponent(details, theme, manager, { html: "<p>x</p>" });
 		assert.deepEqual(c.render(80), ["◇ grid · click to load"]);
 		assert.equal(c.handleMouse(ev("press", 3, 1)), undefined, "only the row's line");
 		assert.deepEqual(c.handleMouse(ev("press", 3, 0)), { handled: true, render: true });
-		assert.deepEqual(calls.at(-1)?.arg, { id: "w1", source: { html: "<p>x</p>" } });
+		assert.deepEqual(calls.at(-1)?.arg, { id: "w1", source: { html: "<p>x</p>" } }, "RQ03 as amended: no replay without a shown grid");
 	});
 	it("chooses the hint with Pi's multiplexer condition", () => {
 		assert.equal(interactHint(false), " · click to interact");

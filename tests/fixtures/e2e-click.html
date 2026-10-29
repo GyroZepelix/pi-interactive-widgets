@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e click</title>
+<style>#b{position:absolute;inset:0;width:100%;height:100%;font:20px system-ui;background:#313244;color:#cdd6f4;border:0}</style>
+</head><body><button id="b">CLICK</button>
+<script>
+// E2E (AC01, AC03): reports its load, every press, every click on the button, and every wheel event through pi.send.
+let downs = 0;
+let clicks = 0;
+pi.send({ loaded: "CLICK" });
+addEventListener("mousedown", () => pi.send({ down: ++downs }));
+document.getElementById("b").addEventListener("click", () => pi.send({ click: ++clicks }));
+addEventListener("wheel", (e) => pi.send({ wheel: [Math.sign(e.deltaX), Math.sign(e.deltaY)] }), { passive: true });
+</script></body></html>

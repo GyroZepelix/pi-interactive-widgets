@@ -159,34 +159,82 @@ export function fitCells(cols: number, rows: number, maxCols: number): CellBox {
 	return { cols: fitCols, rows: Math.max(1, Math.min(MAX_CELLS, Math.ceil(rows * scale))), scale };
 }
 
-/** Sends frames of one image: skips byte-identical frames at the same size and writes each upload once. */
+/** Delay before the previous buffer's image is deleted after the rows switched away from it (RQ04). */
+export const RETIRE_DELAY_MS = 250;
+
+export interface KittyImageHooks {
+	/** Called after a new frame went to the spare id: the placeholder rows must be rendered again to switch to it. */
+	onSwitch?: () => void;
+	/** Timer for the delayed delete (tests inject a fake one). */
+	setTimer?: (fn: () => void, ms: number) => void;
+}
+
+/**
+ * Sends frames of one widget image, double-buffered (RQ04): Ghostty deletes an image and its placements when a new
+ * upload to the same id begins, so the rows would show nothing until the last chunk arrived. A new frame therefore goes
+ * to the spare id, `lines` then switches the placeholder rows to it, and the previous image is deleted
+ * `RETIRE_DELAY_MS` after the switch unless it was reused meanwhile. Re-sends (scaled sends and recovery) go to the id
+ * the rows show, so no switch is needed and rows already written (for example in regular-mode scrollback) stay valid.
+ * Byte-identical frames at the same size are skipped. With one id, every upload replaces it in place.
+ */
 export class KittyImage {
-	readonly id: number;
+	/** Both buffer ids; the first is the widget's persisted `imageId`. */
+	readonly ids: readonly [number, number];
 	private readonly write: (data: string) => void;
 	private readonly opts: TransportOptions;
+	private readonly hooks: KittyImageHooks;
 	private last: { data: string; cols: number; rows: number } | undefined;
+	/** Id holding the newest upload. */
+	private current: number;
+	/** Id in the placeholder rows written last; undefined before the first `lines` call. */
+	private shown: number | undefined;
+	/** Uploads per id, so a delayed delete never removes an id uploaded again after it was scheduled. */
+	private readonly uploads = new Map<number, number>();
 
-	constructor(id: number, opts: TransportOptions, write: (data: string) => void = (d) => void process.stdout.write(d)) {
-		checkId(id);
-		this.id = id;
+	constructor(id: number | readonly [number, number], opts: TransportOptions, write: (data: string) => void = (d) => void process.stdout.write(d), hooks: KittyImageHooks = {}) {
+		const ids: readonly [number, number] = typeof id === "number" ? [id, id] : id;
+		checkId(ids[0]);
+		checkId(ids[1]);
+		this.ids = ids;
+		this.current = ids[0];
 		this.opts = opts;
 		this.write = write;
+		this.hooks = hooks;
 	}
 
-	/** Uploads the frame at `cols` x `rows` cells; returns false when it was identical to the last upload. */
+	/** Id the next `lines` call puts in the rows: the one holding the newest upload. */
+	get id(): number {
+		return this.current;
+	}
+
+	private upload(id: number, base64Png: string, cols: number, rows: number): void {
+		this.write(uploadCommand(id, base64Png, cols, rows, this.opts));
+		this.uploads.set(id, (this.uploads.get(id) ?? 0) + 1);
+		this.current = id;
+		this.last = { data: base64Png, cols, rows };
+	}
+
+	/** The id not shown in the rows (the first id before anything was shown). */
+	private spare(): number {
+		const [a, b] = this.ids;
+		if (this.shown === undefined) return this.current;
+		return this.shown === a ? b : a;
+	}
+
+	/** Uploads a new frame to the spare id and asks for the rows to switch; false when identical to the last upload. */
 	send(base64Png: string, cols: number, rows: number): boolean {
 		const l = this.last;
 		if (l && l.cols === cols && l.rows === rows && l.data === base64Png) return false;
-		this.write(uploadCommand(this.id, base64Png, cols, rows, this.opts));
-		this.last = { data: base64Png, cols, rows };
+		const target = this.spare();
+		this.upload(target, base64Png, cols, rows);
+		if (target !== this.shown) this.hooks.onSwitch?.();
 		return true;
 	}
 
-	/** Re-sends the last frame (scaled send or recovery); returns false when nothing was sent yet. */
+	/** Re-sends the last frame to the id the rows show (scaled send or recovery); false when nothing was sent yet. */
 	resend(cols: number, rows: number): boolean {
 		if (!this.last) return false;
-		this.write(uploadCommand(this.id, this.last.data, cols, rows, this.opts));
-		this.last = { ...this.last, cols, rows };
+		this.upload(this.shown ?? this.current, this.last.data, cols, rows);
 		return true;
 	}
 
@@ -200,12 +248,29 @@ export class KittyImage {
 		return this.last !== undefined;
 	}
 
+	/** Placeholder rows for the newest upload; switching away from the previous id schedules its delete. */
 	lines(cols: number, rows: number): string[] {
-		return placeholderLines(this.id, cols, rows);
+		const id = this.current;
+		const prev = this.shown;
+		this.shown = id;
+		if (prev !== undefined && prev !== id) this.retire(prev);
+		return placeholderLines(id, cols, rows);
 	}
 
+	/** Deletes `id` after the switched rows were written, unless it was uploaded again or shown meanwhile. */
+	private retire(id: number): void {
+		const uploads = this.uploads.get(id) ?? 0;
+		const timer = this.hooks.setTimer ?? ((fn: () => void, ms: number) => void setTimeout(fn, ms).unref?.());
+		timer(() => {
+			if (id === this.shown || id === this.current || (this.uploads.get(id) ?? 0) !== uploads) return;
+			this.write(deleteCommand(id, this.opts));
+		}, RETIRE_DELAY_MS);
+	}
+
+	/** Deletes both buffers from terminal memory and forgets the still. */
 	delete(): void {
-		this.write(deleteCommand(this.id, this.opts));
+		this.write(deleteCommand(this.ids[0], this.opts));
+		if (this.ids[1] !== this.ids[0]) this.write(deleteCommand(this.ids[1], this.opts));
 		this.last = undefined;
 	}
 }

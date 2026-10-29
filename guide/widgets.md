@@ -45,12 +45,13 @@ Not for approvals or choosing among options. Never for forms, code, commands, er
 - The viewport is fixed: `cols` x `rows` cells, about 8x17 CSS px per cell. The page cannot scroll. Design for exactly that size.
 - Give growing areas (logs, lists, tables) `min-height: 0` and `overflow: auto` or `hidden`, so new content never resizes other elements or pushes content off screen.
 - Size `<canvas>` backing stores with a `ResizeObserver` (CSS size times `devicePixelRatio`).
-- Use a dark background. Pi theme colors are CSS variables: `--pi-accent`, `--pi-muted`, `--pi-dim`, `--pi-border`, `--pi-success`, `--pi-error`, `--pi-warning` (and `--pi-fg` on dark themes).
+- Leave the page background (`html`, `body`) unset: the page is transparent, so the widget blends into the terminal background. Text defaults to light on a dark color scheme. Give cards and panels their own background (a dark color or a theme variable). Pi theme colors are CSS variables: `--pi-accent`, `--pi-muted`, `--pi-dim`, `--pi-border`, `--pi-success`, `--pi-error`, `--pi-warning` (and `--pi-fg` on dark themes).
 - Prefer a few large elements over dense detail. A 100x20 widget is 800x340 CSS px.
 
 ## Input
 
 - Input is cell-precise (about 8x17 CSS px per cell), so make click targets at least about 24 px in both directions.
+- Make the visual elements themselves clickable where it helps: click a variant to highlight or enlarge it, click a diagram to step it, click a chart point to show its value. One click is enough, even on a paused widget; decisions still go to text or `ask_user_question`, not to buttons in the widget.
 - Use click-triggered UI instead of hover. Under tmux the page sees pointer moves only while a button is held, so `:hover` styles and hover tooltips do not track the pointer. Use click-to-open menus, tooltips, and details.
 - In-page `<select>` works. Avoid native pickers (`input type=date`, `time`, `color`, `month`, `week`); build custom controls.
 - Keys reach the page while the widget is focused. Escape always releases the widget, so do not bind Escape to anything important.

@@ -51,7 +51,8 @@ const css = cssCellSize(cell, dpr);
 const source: WidgetSource = args.html !== undefined ? { html: args.html } : { path: resolve(args.path ?? "tests/fixtures/grid.html") };
 
 const ids = new ImageIdAllocator({ min: Number(args["id-min"]), max: Number(args["id-max"]) });
-const image = new KittyImage(ids.next(), { tmux: env.tmux }, (d) => void out.write(d));
+// Double-buffered like the extension (RQ04): a new frame goes to the spare id and the rows switch to it.
+const image = new KittyImage([ids.next(), ids.next()], { tmux: env.tmux }, (d) => void out.write(d), { onSwitch: () => drawRows() });
 let box: CellBox = { cols, rows, scale: 1 };
 const stats = { frames: 0, sent: 0, skipped: 0, bytes: 0 };
 let page: WidgetPage | undefined;
@@ -71,10 +72,19 @@ function parseCell(s: string | undefined): { width: number; height: number } | u
 }
 
 function draw(): void {
-	const title = `harness i=0x${image.id.toString(16)} ${cols}x${rows} cells, shown ${box.cols}x${box.rows} (scale ${box.scale.toFixed(3)}), q quits`;
-	let s = `\x1b[H\x1b[2J\x1b[1m${title.slice(0, Math.max(0, (out.columns ?? 80) - 1))}\x1b[22m`;
+	const title = `harness i=0x${image.ids[0].toString(16)}/0x${image.ids[1].toString(16)} ${cols}x${rows} cells, shown ${box.cols}x${box.rows} (scale ${box.scale.toFixed(3)}), q quits`;
+	out.write(`\x1b[H\x1b[2J\x1b[1m${title.slice(0, Math.max(0, (out.columns ?? 80) - 1))}\x1b[22m${rowsText()}`);
+}
+
+function rowsText(): string {
+	let s = "";
 	for (const [i, line] of image.lines(box.cols, box.rows).entries()) s += `\x1b[${GRID_ORIGIN.row + i};${GRID_ORIGIN.col}H${line}`;
-	out.write(s);
+	return s;
+}
+
+/** Rewrites only the placeholder rows (the double-buffer switch after a new frame). */
+function drawRows(): void {
+	out.write(rowsText());
 }
 
 function onFrame(data: string): void {
@@ -157,7 +167,8 @@ async function control(method: string, url: URL): Promise<unknown> {
 			return {
 				pid: process.pid,
 				browserPid: host?.pid,
-				imageId: image.id,
+				imageId: image.ids[0],
+				imageIds: image.ids,
 				env,
 				cell,
 				cssCell: css,
@@ -247,6 +258,7 @@ async function main(): Promise<void> {
 		cssWidth: cols * css.width,
 		cssHeight: rows * css.height,
 		title: "harness",
+		transparent: true,
 		maxFps: fps,
 		onFrame: (f) => onFrame(f.data),
 	});

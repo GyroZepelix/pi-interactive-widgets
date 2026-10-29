@@ -162,6 +162,29 @@ export function fitSize(size: Size, maxEdge: number): Size {
 	return { width: Math.max(1, Math.round(size.width * k)), height: Math.max(1, Math.round(size.height * k)) };
 }
 
+/**
+ * Composites a base64 PNG with an alpha channel onto an opaque `#rrggbb` background (transparent widget pages,
+ * RQ05), so viewers that show transparency as white or checkered still show the page as the terminal does. PNGs
+ * without alpha pass through unchanged.
+ */
+export function flattenPng(base64: string, background: string): string {
+	const png = Buffer.from(base64, "base64");
+	pngSize(png);
+	const color = png[25];
+	if (color !== 4 && color !== 6) return base64;
+	const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(background);
+	if (!m) throw new Error(`bad background color ${background}`);
+	const bg = [m[1], m[2], m[3]].map((h) => Number.parseInt(h ?? "0", 16));
+	const img = decodePng(png);
+	const d = img.data;
+	for (let i = 0; i < d.length; i += 4) {
+		const a = (d[i + 3] ?? 255) / 255;
+		for (let c = 0; c < 3; c++) d[i + c] = Math.round((d[i + c] ?? 0) * a + (bg[c] ?? 0) * (1 - a));
+		d[i + 3] = 255;
+	}
+	return encodePng(img).toString("base64");
+}
+
 /** Returns a base64 PNG whose long edge is at most `maxEdge`; smaller images pass through unchanged. */
 export function limitPng(base64: string, maxEdge: number): { data: string } & Size {
 	const png = Buffer.from(base64, "base64");

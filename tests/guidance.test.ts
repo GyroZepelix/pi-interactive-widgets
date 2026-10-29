@@ -11,7 +11,7 @@ import interactiveWidgets from "../src/index.js";
 import { KittyImage } from "../src/kitty.js";
 import { type SessionState, Widget, type WidgetDetails, WidgetManager } from "../src/manager.js";
 import type { WidgetPage } from "../src/page.js";
-import { decodePng, downscale, encodePng, fitSize, limitPng, pngSize } from "../src/png.js";
+import { decodePng, downscale, encodePng, fitSize, flattenPng, limitPng, pngSize } from "../src/png.js";
 import { CHECK_DESCRIPTION, DESCRIPTION, GUIDELINES } from "../src/prompts.js";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -100,6 +100,10 @@ describe("guide file (AC02)", () => {
 			"Show, then ask",
 			"## check_widget",
 			"Not for approvals or choosing among options",
+			"Leave the page background (`html`, `body`) unset",
+			"blends into the terminal background",
+			"click a variant to highlight or enlarge it",
+			"decisions still go to text or `ask_user_question`",
 		])
 			assert.ok(guide.includes(s), s);
 	});
@@ -169,6 +173,17 @@ describe("PNG helpers (RQ05)", () => {
 		const small = solidPng(300, 200);
 		assert.equal(limitPng(small, 1000).data, small);
 		assert.deepEqual(fitSize({ width: 400, height: 3000 }, 1000), { width: 133, height: 1000 });
+	});
+
+	it("RQ05: flattens alpha onto the page background; opaque PNGs pass through unchanged", () => {
+		const data = new Uint8Array([200, 100, 50, 255, 255, 255, 255, 0, 100, 100, 100, 128]);
+		const png = encodePng({ width: 3, height: 1, data }).toString("base64");
+		const flat = decodePng(Buffer.from(flattenPng(png, "#1e1e2e"), "base64"));
+		assert.deepEqual([...flat.data], [200, 100, 50, 255, 30, 30, 46, 255, 65, 65, 73, 255]);
+		const rgb = Buffer.from(png, "base64");
+		rgb[25] = 2; // header says RGB: no alpha to flatten
+		assert.equal(flattenPng(rgb.toString("base64"), "#1e1e2e"), rgb.toString("base64"));
+		assert.throws(() => flattenPng(png, "red"), /bad background/);
 	});
 
 	it("area averaging mixes neighboring pixels", () => {
@@ -281,6 +296,17 @@ describe("WidgetManager.check (AC04)", () => {
 		assert.deepEqual(log, []);
 		assert.equal(revived, 0);
 		assert.equal(w.closed, true);
+	});
+
+	it("RQ05: transparent captures and stills are composited onto the page background", async () => {
+		const { manager, page, image, setState } = setup();
+		page.capture = async () => solidPng(400, 170, [0, 0, 0, 0]);
+		const live = decodePng(Buffer.from((await manager.check("w1"))?.image ?? "", "base64"));
+		assert.deepEqual([...live.data.slice(0, 4)], [30, 30, 46, 255]);
+		image.send(solidPng(400, 170, [255, 255, 255, 0]), 100, 20);
+		setState("closed");
+		const still = decodePng(Buffer.from((await manager.check("w1"))?.image ?? "", "base64"));
+		assert.deepEqual([...still.data.slice(0, 4)], [30, 30, 46, 255]);
 	});
 
 	it("an unknown id is undefined; a closed widget without a still has no image", async () => {

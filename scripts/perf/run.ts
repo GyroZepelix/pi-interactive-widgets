@@ -41,6 +41,7 @@ interface Stats {
 	pid: number;
 	browserPid?: number;
 	imageId: number;
+	imageIds?: number[];
 	cssCell: { width: number; height: number };
 	cols: number;
 	rows: number;
@@ -65,7 +66,7 @@ async function withHarness<T>(fixture: string, fn: (h: Harness) => Promise<T>): 
 	const sock = join(tmpdir(), `piw-harness-${process.pid}-${Date.now()}.sock`);
 	const cmd = `node --import tsx scripts/harness.ts --path '${fixture}' --cols ${COLS} --rows ${ROWS} --control '${sock}'; c=$?; [ $c -ne 0 ] && sleep 30`;
 	const split = openSplit(cmd, ROOT, { cols: COLS + 1, rows: ROWS + 2 });
-	let imageId: number | undefined;
+	let imageIds: number[] = [];
 	try {
 		const stats = await waitFor(
 			async () => {
@@ -77,7 +78,7 @@ async function withHarness<T>(fixture: string, fn: (h: Harness) => Promise<T>): 
 		).catch((err: unknown) => {
 			throw new Error(`${err instanceof Error ? err.message : String(err)}\n${capturePane(split.pane)}`);
 		});
-		imageId = stats.imageId;
+		imageIds = stats.imageIds ?? [stats.imageId];
 		if (stats.browserPid) for (const p of tree(snapshot(), stats.browserPid)) startedPids.add(p);
 		const h: Harness = {
 			split,
@@ -91,7 +92,7 @@ async function withHarness<T>(fixture: string, fn: (h: Harness) => Promise<T>): 
 		await call(sock, "POST", "/quit", 2_000).catch(() => {});
 		const end = Date.now() + 5_000;
 		while (Date.now() < end && tmux("list-panes", "-a", "-F", "#{pane_id}").split("\n").includes(split.pane)) await sleep(100);
-		closeSplit(split, imageId ? [imageId] : []);
+		closeSplit(split, imageIds);
 	}
 }
 

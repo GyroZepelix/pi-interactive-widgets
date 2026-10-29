@@ -174,7 +174,13 @@ export class PiSession {
 		return capturePane(this.split.pane).replace(/[\u0300-\u036f\u0483-\u0487\u0591-\u05c7\u0610-\u061a\u064b-\u065f\u06d6-\u06ed\u0730-\u074a\u07eb-\u07f3\u0816-\u082d\u0951-\u0954\u0f82-\u0f87\u135d-\u135f\u17dd\u193a\u1a17\u1a75-\u1a7c\u1b6b-\u1b73\u1cd0-\u1ce0\u1dc0-\u1dff\u20d0-\u20f0\u2cef-\u2cf1\u2de0-\u2dff\ua66f-\ua67d\ua6f0\ua6f1\ua8e0-\ua8e5]/g, "");
 	}
 
-	/** Pane position (0-based) of an image's placeholder grid, found by its id color. */
+	/** Both double-buffer ids of a widget image (RQ04), from the dev log's `spareId` next to `imageId`. */
+	imageIds(imageId: number): number[] {
+		const spare = this.events().find((e) => Number(e.imageId) === imageId && e.spareId !== undefined)?.spareId;
+		return spare === undefined ? [imageId] : [imageId, Number(spare)];
+	}
+
+	/** Pane position (0-based) of an image's placeholder grid, found by the color of either of its buffer ids. */
 	locate(imageId: number): { row: number; col: number; rows: number } | undefined {
 		let raw = "";
 		try {
@@ -182,7 +188,8 @@ export class PiSession {
 		} catch {
 			return undefined;
 		}
-		const color = new RegExp(`38[;:]2[;:]+${(imageId >> 16) & 255}[;:]${(imageId >> 8) & 255}[;:]${imageId & 255}m`);
+		const rgb = (id: number): string => `${(id >> 16) & 255}[;:]${(id >> 8) & 255}[;:]${id & 255}`;
+		const color = new RegExp(`38[;:]2[;:]+(?:${this.imageIds(imageId).map(rgb).join("|")})m`);
 		let row = -1;
 		let col = -1;
 		let rows = 0;

@@ -15,6 +15,14 @@ const imageOf = (e: DevEvent): number => Number(e.imageId);
 const sends = (s: PiSession, id: string): DevEvent[] => s.events().filter((e) => e.ev === "send" && e.id === id);
 const loads = (s: PiSession, id: string): string[] => sends(s, id).flatMap((e) => ((e.data as { loaded?: string }).loaded ? [(e.data as { loaded: string }).loaded] : []));
 const count = (s: PiSession, ev: string, id: string): number => s.events().filter((e) => e.ev === ev && e.id === id).length;
+const clicks = (s: PiSession, id: string): number => sends(s, id).filter((e) => (e.data as { click?: number }).click !== undefined).length;
+/** Page sends after the `n`-th load (1-based), without the load marker itself. */
+const afterLoad = (s: PiSession, id: string, n: number): unknown[] => {
+	const all = sends(s, id).map((e) => e.data as Record<string, unknown>);
+	let seen = 0;
+	const i = all.findIndex((d) => d.loaded !== undefined && ++seen === n);
+	return i < 0 ? [] : all.slice(i + 1).filter((d) => d.loaded === undefined);
+};
 
 async function newWidget(s: PiSession, line: string, title: RegExp): Promise<DevEvent> {
 	const known = new Set(s.events().filter((e) => e.ev === "widget").map(idOf));
@@ -92,11 +100,11 @@ describe("run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, f
 		await s.waitEvent((e) => e.ev === "release" && e.id === idOf(a), 5_000, "release");
 	});
 
-	it("AC03 and AC07: at most 5 pages; the least recently used frozen page closes; a click revives it warm with fresh JS state", async (t) => {
+	it("AC03 and AC07: at most 5 pages; the least recently used frozen page closes; a click revives it warm with fresh JS state and reaches its button once (RQ03 AC03b)", async (t) => {
 		const before = new Set(s.events().filter((e) => e.ev === "closed").map(idOf));
 		const ws: DevEvent[] = [];
 		for (let i = 0; i < 6; i++) {
-			const w = await newWidget(s, "/widget-dev tests/fixtures/e2e-revive.html 40 1", /e2e-revive/);
+			const w = await newWidget(s, "/widget-dev tests/fixtures/e2e-click.html 40 1", /e2e-click/);
 			await s.waitFor(() => (loads(s, idOf(w)).length === 1 ? true : undefined), 5_000, "loaded");
 			ws.push(w);
 		}
@@ -109,11 +117,16 @@ describe("run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, f
 		const first = ws[0] as DevEvent;
 		assert.ok(closedNow.some((e) => e.id === idOf(first)), "the first revive widget (least recently used) closed");
 		const grid = await s.waitLocate(imageOf(first), 1);
-		await s.waitFor(() => (/e2e-revive\.html · closed · click to reopen/.test(s.capture()) ? true : undefined), 5_000, "closed hint");
+		await s.waitFor(() => (/e2e-click\.html · closed · click to reopen/.test(s.capture()) ? true : undefined), 5_000, "closed hint");
+		const clicksBefore = clicks(s, idOf(first));
 		const press = Date.now();
 		s.type(s.press(grid.col + 5, grid.row));
 		const revived = await s.waitEvent((e) => e.ev === "revived" && e.id === idOf(first), 5_000, "revived");
 		await s.waitFor(() => (loads(s, idOf(first)).length === 2 ? true : undefined), 5_000, "fresh JS state after revive");
+		await s.waitEvent((e) => e.ev === "replay" && e.id === idOf(first), 5_000, "replay");
+		await s.waitFor(() => (clicks(s, idOf(first)) === clicksBefore + 1 ? true : undefined), 5_000, "the reviving click reaches the new page");
+		await sleep(500);
+		assert.deepEqual(afterLoad(s, idOf(first), 2), [{ down: 1 }, { click: 1 }], "the new page saw exactly one press and one click");
 		assert.equal(revived.warm, true, "browser was running");
 		assert.ok(Number(revived.ms) <= 400, `revive took ${String(revived.ms)} ms (about 200 ms expected)`);
 		assert.ok(Number(revived.pages) <= 5, `${String(revived.pages)} pages open after the revive`);
@@ -244,7 +257,7 @@ describe("resume and restart (AC07) and kill -9 (AC03)", () => {
 	it("after a restart with the session continued, the widget row shows a placeholder line until clicked, then revives", async (t) => {
 		agentDir = mkdtempSync(join(tmpdir(), "piw-e2e-resume-"));
 		let s = await PiSession.start({ persist: true, agentDir });
-		const html = `<p>RESUMED</p><script>pi.send({ loaded: "RESUMED" })</script>`;
+		const html = `<button id=b style="position:absolute;inset:0;width:100%;height:100%">GO</button><script>let c=0;pi.send({loaded:"RESUMED"});addEventListener("mousedown",()=>pi.send({down:1}));b.onclick=()=>pi.send({click:++c})</script>`;
 		let id = "";
 		try {
 			await s.command(`e2e-tool ${JSON.stringify({ html, title: "resume probe", cols: 40, rows: 2 })}`);
@@ -282,6 +295,16 @@ describe("resume and restart (AC07) and kill -9 (AC03)", () => {
 			s.track();
 			// The dev log is shared with the first run, which logged the first load.
 			await s.waitFor(() => (loads(s, id).length === 2 ? true : undefined), 5_000, "loaded from the persisted tool arguments");
+			// AC03c (as amended): the one-line row has no control, so the reviving click is not replayed.
+			await sleep(800);
+			assert.deepEqual(afterLoad(s, id, 2), [], "the reviving click on the one-line row records no press");
+			assert.equal(count(s, "replay", id), 0);
+			const grid = await s.waitLocate(Number(revived.imageId), 2);
+			s.type(s.press(grid.col + 5, grid.row + 1));
+			await s.waitFor(() => (clicks(s, id) === 1 ? true : undefined), 5_000, "the next single click reaches the button");
+			await sleep(500);
+			assert.deepEqual(afterLoad(s, id, 2), [{ down: 1 }, { click: 1 }], "exactly one press and one click");
+			s.key("Escape");
 			t.diagnostic(`cold revive after restart ${String(revived.ms)} ms`);
 		} finally {
 			await closeAndCheck(s);

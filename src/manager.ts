@@ -10,11 +10,26 @@ import { type Component, colorToHex, getCellDimensions, type TUI } from "@earend
 import { deliveryOptions, widgetMessage } from "./bridge.js";
 import { BrowserHost } from "./browser.js";
 import { CHECK_MAX_EDGE, type CheckReport, type LayoutProbe, PROBE_SCRIPT } from "./check.js";
+import { BUTTON_BITS, WHEEL_PX } from "./component.js";
 import type { WidgetConfig } from "./config.js";
 import { type CellSize, cssCellSize, type Environment, tmuxCellSize, tmuxDisplay } from "./env.js";
 import { type CellBox, imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
-import { limitPng } from "./png.js";
-import { type BlockedRequest, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
+import { flattenPng, limitPng } from "./png.js";
+import { type BlockedRequest, DEFAULT_PAGE_BG, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
+import { cdpModifiers, horizontalWheel, isPress, parseSgr, RawInputHook, type RawInputResult, type SgrMouse } from "./rawinput.js";
+
+/** A click replayed on a revived page at the CSS point it hit on the closed widget's still (RQ03). */
+export interface Replay {
+	x: number;
+	y: number;
+	button: "left" | "middle" | "right";
+	modifiers: number;
+}
+
+/** A row component that maps screen cells to CSS points (WidgetComponent). */
+interface ScreenMapped {
+	cssAtScreen(screenX: number, screenY: number): { x: number; y: number } | undefined;
+}
 
 /** Persisted with the tool result (and dev entries); enough to render the row after a reload. */
 export interface WidgetDetails {
@@ -227,6 +242,11 @@ export class WidgetManager {
 	private lastSize: string | undefined;
 	private resendQueued = false;
 	private readonly s: SessionState;
+	/** Raw input hook ahead of Pi's viewport listener (RQ01, RQ02); not installed when the feature check fails. */
+	private readonly hook = new RawInputHook((data) => this.rawInput(data));
+	private hookLogged: boolean | undefined;
+	/** The press being dispatched while a widget is focused; a row of that widget marks it inside (RQ02). */
+	private pressProbe: { widget: Widget; inside: boolean } | undefined;
 
 	constructor(state: SessionState) {
 		this.s = state;
@@ -253,6 +273,95 @@ export class WidgetManager {
 		return this.s.motion;
 	}
 
+	/** The raw input hook is installed; without it trackpad presses are filtered in the component instead (fallback). */
+	get rawInputHooked(): boolean {
+		return this.hook.installed;
+	}
+
+	/** Captures the TUI and installs the raw input hook. */
+	attach(tui: TUI): void {
+		this.s.tui = tui;
+		this.applyHook();
+	}
+
+	/** Installs or re-applies the hook at the front of the current TUI's listeners (after a renderer change, too). */
+	private applyHook(): void {
+		const tui = this.s.tui;
+		if (!tui) return;
+		const ok = this.hook.apply(tui);
+		if (ok !== this.hookLogged) {
+			this.hookLogged = ok;
+			devLog({ ev: "raw-input", hooked: ok });
+		}
+	}
+
+	/** Pi's fullscreen transcript scroll offset (`TuiAltScreen.viewportTop`), 0 when unavailable. */
+	viewportTop(): number {
+		const v = (this.s.tui as { viewportTop?: unknown } | undefined)?.viewportTop;
+		return typeof v === "number" ? v : 0;
+	}
+
+	/**
+	 * Raw terminal input ahead of Pi (fullscreen only). Horizontal wheel (codes 66 and 67 with any modifier bits) is
+	 * consumed: a focused widget under the pointer scrolls its page sideways, otherwise it is dropped (RQ01). A press
+	 * passes through; when it does not land on the focused widget's rows, the widget is released like Escape (RQ02).
+	 */
+	rawInput(data: string): RawInputResult {
+		if (!this.fullscreen) return undefined;
+		const m = parseSgr(data);
+		if (!m) return undefined;
+		const dir = horizontalWheel(m.code);
+		if (dir !== 0) {
+			if (!m.release) this.horizontalWheel(m, dir);
+			return { consume: true };
+		}
+		if (isPress(m)) this.watchPress();
+		return undefined;
+	}
+
+	private horizontalWheel(m: SgrMouse, dir: -1 | 1): void {
+		const w = this.focusedWidget();
+		if (!w || w.closed) return;
+		const at = (w.focusedBy as Partial<ScreenMapped> | undefined)?.cssAtScreen?.(m.x, m.y);
+		if (!at) return;
+		this.pointer(w, "wheel");
+		w.wheel({ x: at.x, y: at.y, deltaX: dir * WHEEL_PX, deltaY: 0, modifiers: cdpModifiers(m.code) });
+	}
+
+	/** Checks after Pi dispatched the press whether it reached the focused widget's rows; releases it otherwise. */
+	private watchPress(): void {
+		const w = this.focusedWidget();
+		if (!w) return;
+		const probe = { widget: w, inside: false };
+		this.pressProbe = probe;
+		queueMicrotask(() => {
+			if (this.pressProbe === probe) this.pressProbe = undefined;
+			// A press on another widget or a focusable component already moved focus; Pi's blur then releases this one.
+			if (probe.inside || !w.focusedBy || this.focusedComponent() !== w.focusedBy) return;
+			devLog({ ev: "outside-press", id: w.id });
+			this.releaseFocus(w);
+		});
+	}
+
+	/** Called by a widget row for every press Pi dispatches to it; `inRows` when the press is on the row's lines. */
+	pressSeen(w: Widget, inRows: boolean): void {
+		if (inRows && this.pressProbe?.widget === w) this.pressProbe.inside = true;
+	}
+
+	/** The widget whose row holds Pi's keyboard focus. */
+	focusedWidget(): Widget | undefined {
+		const c = this.focusedComponent();
+		if (!c) return undefined;
+		for (const w of this.widgets.values()) if (w.focusedBy === c) return w;
+		return undefined;
+	}
+
+	/** The component to restore when a widget about to take focus is released: never another widget's row. */
+	focusTarget(): Component | null {
+		const owner = this.focusedWidget();
+		return owner ? owner.prevFocus : this.focusedComponent();
+	}
+
 	/** Widgets with an open page. */
 	get openPages(): number {
 		let n = 0;
@@ -267,6 +376,11 @@ export class WidgetManager {
 		return { width: pi.widthPx, height: pi.heightPx };
 	}
 
+	/** Two fresh image ids (double buffering, RQ04); a new frame re-renders the rows to switch to its id. */
+	private newImage(): KittyImage {
+		return new KittyImage([imageIds.next(), imageIds.next()], { tmux: this.s.env.tmux }, undefined, { onSwitch: () => this.s.tui?.requestRender() });
+	}
+
 	/** Opens a page for a widget; frames go to its image at its current display size. `id` labels dev-log events. */
 	private async openPage(id: string, source: WidgetSource, title: string, cssWidth: number, cssHeight: number, target: () => Widget | undefined): Promise<WidgetPage> {
 		this.host ??= new BrowserHost({ chromePath: this.s.config.chromePath, dpr: this.s.config.dpr });
@@ -278,6 +392,8 @@ export class WidgetManager {
 			cssHeight,
 			policy: this.s.config.network,
 			theme: themeVars(this.s.ctx?.ui.theme),
+			// Blend into the terminal (RQ05) unless Pi's theme is light: the page keeps a dark scheme with light text.
+			transparent: this.s.ctx?.ui.theme?.appearance !== "light",
 			onFrame: (f) => {
 				const w = target();
 				if (w) w.image.send(f.data, w.display.cols, w.display.rows);
@@ -301,7 +417,7 @@ export class WidgetManager {
 		const dpr = this.s.config.dpr;
 		const css = cssCellSize(this.cellSize(), dpr);
 		const { cols, rows } = widgetSize(opts.cols, opts.rows, this.s.tui?.terminal.columns ?? process.stdout.columns ?? 104);
-		const image = new KittyImage(imageIds.next(), { tmux: this.s.env.tmux });
+		const image = this.newImage();
 		const cssWidth = Math.round(cols * css.width);
 		const cssHeight = Math.round(rows * css.height);
 		let widget: Widget | undefined;
@@ -309,7 +425,7 @@ export class WidgetManager {
 		const page = await this.openPage(id, opts.source, opts.title, cssWidth, cssHeight, () => widget);
 		const details: WidgetDetails = {
 			id,
-			imageId: image.id,
+			imageId: image.ids[0],
 			title: opts.title,
 			cols,
 			rows,
@@ -331,7 +447,7 @@ export class WidgetManager {
 	async start(w: Widget): Promise<void> {
 		this.widgets.set(w.id, w);
 		w.lastUsed = ++useSeq;
-		devLog({ ev: "widget", ...w.details });
+		devLog({ ev: "widget", ...w.details, spareId: w.image.ids[1] });
 		if (this.fullscreen) {
 			await this.makeLive(w);
 			this.armIdle(w);
@@ -344,26 +460,26 @@ export class WidgetManager {
 	 * Revives a closed widget, or a row from an earlier process (resume, restart, reload), with fresh JS state:
 	 * inline widgets from their tool arguments, path widgets from the current file (RQ07).
 	 */
-	revive(details: WidgetDetails, source: WidgetSource | undefined): Promise<void> {
+	revive(details: WidgetDetails, source: WidgetSource | undefined, replay?: Replay): Promise<void> {
 		let w = this.widgets.get(details.id);
 		if (!w) {
 			// A row from an earlier process: new image id (ids are never reused within a process), no still yet.
 			const src = source ?? (details.path ? { path: details.path } : undefined);
 			devLog({ ev: "revive", id: details.id, resumed: true, source: src ? Object.keys(src)[0] : null });
 			if (!src) return Promise.resolve();
-			w = new Widget(details, undefined, new KittyImage(imageIds.next(), { tmux: this.s.env.tmux }), src);
+			w = new Widget(details, undefined, this.newImage(), src);
 			this.widgets.set(w.id, w);
 		}
 		const widget = w;
 		if (!widget.closed) return Promise.resolve();
-		widget.reviving ??= this.reviveNow(widget).finally(() => {
+		widget.reviving ??= this.reviveNow(widget, replay).finally(() => {
 			widget.reviving = undefined;
 			this.s.tui?.requestRender();
 		});
 		return widget.reviving;
 	}
 
-	private async reviveNow(w: Widget): Promise<void> {
+	private async reviveNow(w: Widget, replay: Replay | undefined): Promise<void> {
 		const t0 = performance.now();
 		const warm = this.host?.pageCount ? true : false;
 		w.problem = undefined;
@@ -381,11 +497,18 @@ export class WidgetManager {
 		w.pendingBlocked = [];
 		const first = page.lastFrame;
 		if (first) w.image.send(first.data, w.display.cols, w.display.rows);
-		devLog({ ev: "revived", id: w.id, ms: Math.round(performance.now() - t0), warm, imageId: w.image.id, pages: this.host?.pageCount ?? 0 });
+		devLog({ ev: "revived", id: w.id, ms: Math.round(performance.now() - t0), warm, imageId: w.image.ids[0], spareId: w.image.ids[1], pages: this.host?.pageCount ?? 0 });
 		w.lastUsed = ++useSeq;
 		if (this.fullscreen) {
 			await this.makeLive(w);
 			if (!w.focused) this.armIdle(w);
+			// The page loaded and sent its first frame (WidgetPage.open), so the click that revived it can land (RQ03).
+			if (replay && !w.closed) {
+				devLog({ ev: "replay", id: w.id, x: replay.x, y: replay.y, button: replay.button });
+				const base = { x: replay.x, y: replay.y, button: replay.button, clickCount: 1, modifiers: replay.modifiers };
+				w.mouse({ ...base, type: "mousePressed", buttons: BUTTON_BITS[replay.button] });
+				w.mouse({ ...base, type: "mouseReleased", buttons: 0 });
+			}
 		} else await this.freeze(w);
 	}
 
@@ -565,6 +688,7 @@ export class WidgetManager {
 	observeRender(): void {
 		const tui = this.s.tui;
 		if (!tui) return;
+		this.applyHook();
 		const mode = tui.mode;
 		if (mode !== this.lastMode) {
 			const was = this.lastMode;
@@ -612,7 +736,7 @@ export class WidgetManager {
 		const page = w.page;
 		if (page && !page.closed) {
 			try {
-				const shot = limitPng(await page.capture(CHECK_MAX_EDGE), CHECK_MAX_EDGE);
+				const shot = limitPng(flattenPng(await page.capture(CHECK_MAX_EDGE), DEFAULT_PAGE_BG), CHECK_MAX_EDGE);
 				image = shot.data;
 				report.image = { source: "fresh capture", width: shot.width, height: shot.height };
 			} catch (err) {
@@ -631,7 +755,7 @@ export class WidgetManager {
 		}
 		if (!image && w.image.still) {
 			try {
-				const still = limitPng(w.image.still, CHECK_MAX_EDGE);
+				const still = limitPng(flattenPng(w.image.still, DEFAULT_PAGE_BG), CHECK_MAX_EDGE);
 				image = still.data;
 				report.image = { source: "last still", width: still.width, height: still.height };
 			} catch (err) {
@@ -652,6 +776,8 @@ export class WidgetManager {
 	}
 
 	async shutdown(): Promise<void> {
+		this.hook.remove();
+		this.hookLogged = undefined;
 		const all = [...this.widgets.values()];
 		this.widgets.clear();
 		this.live = undefined;

@@ -5,7 +5,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type Focusable, type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth } from "@earendil-works/pi-tui";
 import type { CellSize } from "./env.js";
 import { UNSUPPORTED_NOTICE } from "./env.js";
-import { type CellBox, fitCells, placeholderLines } from "./kitty.js";
+import { type CellBox, fitCells } from "./kitty.js";
 import { mapKey } from "./keys.js";
 import type { WidgetDetails, WidgetManager } from "./manager.js";
 import type { WidgetSource } from "./page.js";
@@ -23,7 +23,7 @@ export function cellToCss(gx: number, gy: number, css: CellSize, cols: number, r
 	return { x: clamp(((gx + 0.5) / box.scale) * css.width, cols * css.width), y: clamp(((gy + 0.5 - offY) / box.scale) * css.height, rows * css.height) };
 }
 
-const BUTTON_BITS = { left: 1, right: 2, middle: 4, none: 0 } as const;
+export const BUTTON_BITS = { left: 1, right: 2, middle: 4, none: 0 } as const;
 
 /**
  * Widest grid a row of `width` cells shows: one column less than the width. A placeholder written into the last
@@ -57,6 +57,11 @@ export class WidgetComponent implements Component, Focusable {
 	private box: CellBox | undefined;
 	/** Lines returned by the last render. */
 	private lines = 0;
+	/**
+	 * Where Pi last placed this row, from the last mouse event it dispatched here: column 0 and the title line in
+	 * transcript coordinates (screen row plus the viewport top), so later transcript scrolling is accounted for.
+	 */
+	private anchor: { x: number; docY: number } | undefined;
 
 	constructor(details: RowDetails, theme: Theme, manager: WidgetManager, source?: WidgetSource) {
 		this.details = details;
@@ -122,25 +127,50 @@ export class WidgetComponent implements Component, Focusable {
 		const box = fitCells(d.cols, d.rows, maxGridCols(width));
 		this.box = box;
 		this.manager.setDisplay(w, box);
-		return [...head, ...placeholderLines(w.image.id, box.cols, box.rows)];
+		// The rows carry the id of the newest upload; switching ids is the double-buffer swap (RQ04).
+		return [...head, ...w.image.lines(box.cols, box.rows)];
+	}
+
+	/**
+	 * CSS point of a screen cell on this row's grid (RQ01 horizontal wheel from the raw input hook), or undefined when the
+	 * cell is outside the grid or Pi has not dispatched a mouse event to this row yet.
+	 */
+	cssAtScreen(screenX: number, screenY: number): { x: number; y: number } | undefined {
+		const d = this.details;
+		const box = this.box;
+		const a = this.anchor;
+		if ("notice" in d || !box || !a) return undefined;
+		const gx = screenX - a.x;
+		const gy = screenY - (a.docY - this.manager.viewportTop()) - 1;
+		if (gx < 0 || gy < 0 || gx >= box.cols || gy >= box.rows) return undefined;
+		return cellToCss(gx, gy, d.cssCell, d.cols, d.rows, box);
 	}
 
 	handleMouse(e: TuiMouseEvent): TuiMouseEventResult | undefined {
 		const d = this.details;
 		if ("notice" in d || !this.manager.fullscreen) return undefined;
+		this.anchor = { x: e.screenX - e.x, docY: e.screenY - e.y + this.manager.viewportTop() };
 		const w = this.manager.get(d.id);
 		const box = this.box;
 		const gx = e.x;
 		const gy = e.y - 1; // line 0 is the title
+		const inRows = e.y >= 0 && e.y < Math.max(1, this.lines);
+		// RQ02: a press on this row's lines is not a click outside the focused widget.
+		if (e.type === "press" && w) this.manager.pressSeen(w, inRows);
+		// Fallback without the raw input hook (RQ01): Pi reports trackpad scrolling (horizontal wheel codes 66 and 67) as
+		// presses with button `right` or `none`; they never focus, press, or revive an unfocused widget.
+		if (e.type === "press" && !this.hasFocus && !this.manager.rawInputHooked && (e.button === "right" || e.button === "none")) return undefined;
+		const inside = box !== undefined && gx >= 0 && gy >= 0 && gx < box.cols && gy < box.rows;
+		const p = box ? cellToCss(gx, gy, d.cssCell, d.cols, d.rows, box) : { x: 0, y: 0 };
+		const modifiers = (e.alt ? 1 : 0) | (e.ctrl ? 2 : 0) | (e.shift ? 8 : 0);
 		if (!w || w.closed || !box) {
-			// Not running (closed, or from an earlier process): a click on the row revives it with fresh JS state.
-			if (e.type !== "press" || e.y < 0 || e.y >= Math.max(1, this.lines)) return undefined;
-			void this.manager.revive(d, this.source);
+			// Not running (closed, or from an earlier process): a click on the row revives it with fresh JS state. A click on
+			// a shown grid (a closed widget's still) is replayed on the revived page after it loaded (RQ03).
+			if (e.type !== "press" || !inRows) return undefined;
+			const button = e.button === "none" ? "left" : e.button;
+			void this.manager.revive(d, this.source, w && box && inside ? { x: p.x, y: p.y, button, modifiers } : undefined);
 			return { handled: true, render: true };
 		}
-		const inside = gx >= 0 && gy >= 0 && gx < box.cols && gy < box.rows;
-		const p = cellToCss(gx, gy, d.cssCell, d.cols, d.rows, box);
-		const modifiers = (e.alt ? 1 : 0) | (e.ctrl ? 2 : 0) | (e.shift ? 8 : 0);
 		switch (e.type) {
 			case "move":
 				if (!inside) return undefined;
@@ -149,7 +179,7 @@ export class WidgetComponent implements Component, Focusable {
 				return { handled: true, render: false };
 			case "press": {
 				if (!inside) return undefined;
-				if (!this.hasFocus) w.prevFocus = this.manager.focusedComponent();
+				if (!this.hasFocus) w.prevFocus = this.manager.focusTarget();
 				this.manager.pointer(w, "press");
 				const button = e.button === "none" ? "left" : e.button;
 				w.buttons |= BUTTON_BITS[button];

@@ -1,0 +1,206 @@
+
+> pi-interactive-widgets@0.1.0 perf
+> node --import tsx scripts/perf/run.ts
+
+{
+  "pass": true,
+  "input": {
+    "pass": true,
+    "grid18": {
+      "pass": true,
+      "hits": 18,
+      "mismatches": 0
+    },
+    "burst60": {
+      "pass": true,
+      "hits": 60,
+      "mismatches": 0
+    },
+    "framesSent": 29,
+    "errors": []
+  },
+  "idle": {
+    "pass": true,
+    "unchangedLivePage": {
+      "pass": true,
+      "windowMs": 5000,
+      "frames": 0,
+      "sent": 0
+    },
+    "frozenAnimatingPage": {
+      "pass": true,
+      "windowMs": 10000,
+      "browser": {
+        "cpuPercent": 0,
+        "rssMb": 275.36,
+        "pids": 4
+      },
+      "framesWhileFrozen": 0,
+      "frameAfterThaw": true
+    }
+  },
+  "active": {
+    "pass": true,
+    "limitPercent": 40,
+    "medianMarginalCpuPercent": 37.4,
+    "medianTotalCpuPercent": 39.89,
+    "baseline": {
+      "windowMs": 10000,
+      "tmux": 2.19,
+      "ghostty": 0.3
+    },
+    "runs": [
+      {
+        "marginalCpuPercent": 37.4,
+        "totalCpuPercent": 39.89,
+        "fps": 8.6,
+        "avgFrameKb": 27.4,
+        "browser": {
+          "cpuPercent": 23.33,
+          "rssMb": 303.38,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 1.2,
+          "rssMb": 106.06,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 4.49,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 10.87,
+          "rssMb": 479.7,
+          "pids": 1
+        }
+      },
+      {
+        "marginalCpuPercent": 37.4,
+        "totalCpuPercent": 39.89,
+        "fps": 8.6,
+        "avgFrameKb": 27.7,
+        "browser": {
+          "cpuPercent": 23.13,
+          "rssMb": 307.36,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 1.2,
+          "rssMb": 106.36,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 4.59,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 10.97,
+          "rssMb": 479.7,
+          "pids": 1
+        }
+      },
+      {
+        "marginalCpuPercent": 37.57,
+        "totalCpuPercent": 40.06,
+        "fps": 8.6,
+        "avgFrameKb": 27.6,
+        "browser": {
+          "cpuPercent": 23.32,
+          "rssMb": 304.31,
+          "pids": 4
+        },
+        "harness": {
+          "cpuPercent": 1.1,
+          "rssMb": 106.44,
+          "pids": 1
+        },
+        "tmux": {
+          "cpuPercent": 4.58,
+          "rssMb": 103.25,
+          "pids": 1
+        },
+        "ghostty": {
+          "cpuPercent": 11.06,
+          "rssMb": 479.73,
+          "pids": 1
+        }
+      }
+    ]
+  },
+  "disk": {
+    "pass": true,
+    "sessionMs": 60055,
+    "animatingBrowserCpuPercent": 17.54,
+    "frozeDuringWindow": false,
+    "imageFiles": [],
+    "newFiles": [
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnGraphiteCache/data_1",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnGraphiteCache/data_0",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnGraphiteCache/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnGraphiteCache/data_2",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnGraphiteCache/data_3",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Session Storage/000003.log",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Session Storage/MANIFEST-000001",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Session Storage/LOCK",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Session Storage/CURRENT",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Session Storage/LOG",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/GPUCache/data_1",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/GPUCache/data_0",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/GPUCache/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/GPUCache/data_2",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/GPUCache/data_3",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DIPS",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/declarative_performance_observer.db",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/PersistentOriginTrials/LOCK",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/PersistentOriginTrials/LOG",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/declarative_performance_observer.db-journal",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DIPS-wal",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Shared Dictionary/cache/index-dir/the-real-index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Shared Dictionary/cache/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Shared Dictionary/db-journal",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Shared Dictionary/db",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/000003.log",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/MANIFEST-000001",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/LOCK",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/CURRENT",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/LOG",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/metadata/000003.log",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/metadata/MANIFEST-000001",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/metadata/LOCK",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/metadata/CURRENT",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/shared_proto_db/metadata/LOG",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnWebGPUCache/data_1",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnWebGPUCache/data_0",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnWebGPUCache/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnWebGPUCache/data_2",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/DawnWebGPUCache/data_3",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Code Cache/js/index-dir/the-real-index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Code Cache/js/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Code Cache/wasm/index-dir/the-real-index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Code Cache/wasm/index",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/000003.log",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/MANIFEST-000001",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/LOCK",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/CURRENT",
+      "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/LOG",
+      "$TMPDIR/piw-e2e-4oMGPG/settings.json",
+      "$TMPDIR/piw-e2e-4oMGPG/models-store.json",
+      "$TMPDIR/piw-e2e-4oMGPG/keybindings.json",
+      "$TMPDIR/piw-e2e-4oMGPG/dev.log",
+      "$TMPDIR/piw-e2e-4oMGPG/auth.json"
+    ],
+    "profileDir": "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC",
+    "profileWritesAfterLaunch": [
+      {
+        "file": "$TMPDIR/puppeteer_dev_chrome_profile-Bn0oeC/Default/Local Storage/leveldb/000003.log",
+        "bytes": 49,
+        "lastWriteMs": 56669
+      }
+    ]
+  },
+  "browserPidsStarted": 20,
+  "browserPidsLeft": []
+}

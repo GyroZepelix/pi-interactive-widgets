@@ -3,6 +3,7 @@
 // sends hover moves (Pi enables button-motion tracking only), so these tests send only presses, releases, and keys.
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { sgr } from "../../scripts/perf/lib.js";
 import { chromePids, type DevEvent, gridTarget, PiSession, sleep } from "./lib.js";
 
 const sends = (s: PiSession, id: string): DevEvent[] => s.events().filter((e) => e.ev === "send" && e.id === id);
@@ -195,6 +196,162 @@ describe("fullscreen session: input, focus, scrolling, bridge, tool", () => {
 		assert.match(result, /Blocked during load: none\./);
 		assert.match(result, /JS errors during load: none\./);
 		await s.waitLocate(imageOf(w), 3);
+	});
+});
+
+describe("input fixes: horizontal wheel, click outside, single click (RQ01-RQ03; dev timers: idle 1.5 s)", () => {
+	let s: PiSession;
+	before(async () => {
+		s = await PiSession.start({ env: { PI_WIDGETS_DEV_TIMERS: "idle=1500" } });
+	});
+	after(async () => closeAndCheck(s));
+
+	const data = (id: string): Record<string, unknown>[] => sends(s, id).map((e) => e.data as Record<string, unknown>);
+	const pageWheels = (id: string): number[][] => data(id).flatMap((d) => (Array.isArray(d.wheel) ? [d.wheel as number[]] : []));
+	const pageDowns = (id: string): number => data(id).filter((d) => d.down !== undefined).length;
+	const pageClicks = (id: string): number => data(id).filter((d) => d.click !== undefined).length;
+	const count = (ev: string, id: string): number => s.events().filter((e) => e.ev === ev && e.id === id).length;
+	const wheelAt = (code: number, x: number, y: number): void => s.type(sgr(code, x + 1, y + 1));
+	let a: DevEvent;
+	let b: DevEvent;
+
+	it("AC01: horizontal wheel over an unfocused widget never wakes, focuses, or presses it; vertical wheel scrolls the transcript", async () => {
+		assert.equal(s.events().find((e) => e.ev === "raw-input")?.hooked, true, "raw input hook installed");
+		for (let i = 1; i <= 4; i++) {
+			await s.command(`fill ${i}`);
+			await s.waitFor(() => (s.turns().length >= i ? true : undefined), 10_000, `turn ${i}`);
+			await sleep(300);
+		}
+		await s.command("/widget-dev tests/fixtures/e2e-click.html 60 4");
+		a = await widgetEvent(s, /e2e-click/);
+		const id = idOf(a);
+		s.track();
+		await s.waitEvent((e) => e.ev === "frozen" && e.id === id, 5_000, "idle freeze");
+		const grid = await s.waitLocate(imageOf(a), 4);
+		const x = grid.col + 30;
+		const y = grid.row + 2;
+		for (const code of [66, 67, 66 + 4, 67 + 8, 66 + 16, 67 + 28]) {
+			wheelAt(code, x, y);
+			await sleep(60);
+		}
+		await sleep(800);
+		assert.equal(count("live", id), 0, "no wake");
+		assert.equal(count("focus", id), 0, "no focus");
+		assert.equal(pageDowns(id) + pageWheels(id).length, 0, "no page press or wheel");
+		assert.match(s.capture(), /e2e-click\.html · click to interact/);
+		s.type("zz");
+		await s.waitFor(() => (/zz/.test(s.capture()) ? true : undefined), 3_000, "keys still go to the editor");
+		s.key("BSpace", "BSpace");
+		await sleep(200);
+
+		const top = s.capture().split("\n")[0];
+		wheelAt(64, x, y);
+		wheelAt(64, x, y);
+		const scrolled = await s.waitFor(() => {
+			const first = s.capture().split("\n")[0];
+			return first !== top ? first : undefined;
+		}, 3_000, "vertical wheel scrolls the transcript");
+		assert.notEqual(scrolled, top);
+		assert.equal(count("focus", id), 0, "vertical wheel does not focus");
+		for (let i = 0; i < 6; i++) {
+			wheelAt(65, x, Math.min(y + 2, 20));
+			await sleep(40);
+		}
+		await s.waitFor(() => (s.capture().split("\n")[0] === top ? true : undefined), 3_000, "back at the bottom");
+	});
+
+	it("AC01: over a focused widget horizontal and vertical wheel scroll the page, not the transcript", async () => {
+		const id = idOf(a);
+		const grid = await s.waitLocate(imageOf(a), 4);
+		const x = grid.col + 30;
+		const y = grid.row + 2;
+		s.type(s.press(x, y));
+		await s.waitEvent((e) => e.ev === "focus" && e.id === id, 5_000, "focus");
+		await s.waitFor(() => (pageClicks(id) === 1 ? true : undefined), 5_000, "click");
+		const screen = s.capture();
+		wheelAt(67, x, y);
+		await sleep(80);
+		wheelAt(66 + 4, x, y);
+		await sleep(80);
+		wheelAt(65, x, y);
+		await s.waitFor(() => (pageWheels(id).length >= 3 ? true : undefined), 5_000, "page wheel events");
+		assert.deepEqual(pageWheels(id), [
+			[1, 0],
+			[-1, 0],
+			[0, 1],
+		]);
+		assert.equal(s.capture().split("\n")[0], screen.split("\n")[0], "the transcript did not scroll");
+	});
+
+	it("AC02: a press on the transcript outside the focused widget releases it like Escape; data arrives with the next prompt", async () => {
+		const id = idOf(a);
+		const grid = await s.waitLocate(imageOf(a), 4);
+		assert.ok(grid.row >= 3, `room above the widget (grid at row ${grid.row})`);
+		const turns = s.turns().length;
+		s.type(s.press(2, grid.row - 3));
+		const outside = await s.waitEvent((e) => e.ev === "outside-press" && e.id === id, 3_000, "outside press");
+		const release = await s.waitEvent((e) => e.ev === "release" && e.id === id, 3_000, "release");
+		const frozen = await s.waitFor(() => s.events().find((e) => e.ev === "frozen" && e.id === id && e.t >= outside.t), 3_000, "frozen");
+		assert.ok(frozen.t - release.t < 1_000);
+		const deliver = await s.waitEvent((e) => e.ev === "deliver" && e.id === id, 3_000, "delivery");
+		assert.deepEqual(deliver.options, { deliverAs: "nextTurn" });
+		await s.waitFor(() => (/e2e-click\.html · click to interact/.test(s.capture()) ? true : undefined), 3_000, "unfocused hint");
+		await s.command("after outside");
+		const turn = await s.waitFor(() => s.turns().slice(turns).find((t) => t.messages.some((m) => m.role === "user" && m.text === "after outside")), 10_000, "next turn");
+		assert.ok(
+			turn.messages.some((m) => m.text.includes('{"down":1}')),
+			"queued pi.send data delivered with the next prompt (the editor had focus again)",
+		);
+		await sleep(500);
+	});
+
+	it("AC03a: a single click on a frozen widget's button reaches the page once", async () => {
+		const id = idOf(a);
+		await s.waitFor(() => (s.events().filter((e) => e.ev === "frozen" && e.id === id).length >= 2 ? true : undefined), 3_000, "frozen");
+		const grid = await s.waitLocate(imageOf(a), 4);
+		const clicks = pageClicks(id);
+		s.type(s.press(grid.col + 30, grid.row + 2));
+		await s.waitFor(() => (pageClicks(id) === clicks + 1 ? true : undefined), 5_000, "one click");
+		await sleep(500);
+		assert.equal(pageClicks(id), clicks + 1, "exactly once");
+		s.key("Escape");
+		await s.waitFor(() => (s.events().filter((e) => e.ev === "release" && e.id === id).length === 2 ? true : undefined), 3_000, "release");
+	});
+
+	it("AC02: a press on a second widget makes it live and focused and freezes the first; releasing it restores the editor", async () => {
+		// Two fresh widgets (the delivery above scrolled widget A out of view).
+		const known = new Set([idOf(a)]);
+		const next = async (): Promise<DevEvent> => {
+			await s.command("/widget-dev tests/fixtures/e2e-click.html 60 2");
+			const w = await s.waitEvent((e) => e.ev === "widget" && !known.has(idOf(e)), 20_000, "new widget");
+			known.add(idOf(w));
+			s.track();
+			return w;
+		};
+		const first = await next();
+		b = await next();
+		const g1 = await s.waitLocate(imageOf(first), 2);
+		const gb = await s.waitLocate(imageOf(b), 2);
+		s.type(s.press(g1.col + 30, g1.row + 1));
+		const focus1 = await s.waitEvent((e) => e.ev === "focus" && e.id === idOf(first), 5_000, "first focused");
+		s.type(s.press(gb.col + 30, gb.row + 1));
+		await s.waitEvent((e) => e.ev === "focus" && e.id === idOf(b), 5_000, "second focused");
+		await s.waitEvent((e) => e.ev === "release" && e.id === idOf(first), 5_000, "first released");
+		const frozen = await s.waitFor(() => s.events().find((e) => e.ev === "frozen" && e.id === idOf(first) && e.t >= focus1.t), 5_000, "first frozen");
+		const lastB = s.events().filter((e) => (e.ev === "live" || e.ev === "frozen") && e.id === idOf(b)).at(-1);
+		assert.ok(!lastB || lastB.ev === "live", "second widget live");
+		assert.equal(count("outside-press", idOf(first)), 0, "released through Pi's focus change, not as an outside press");
+		await s.waitFor(() => (pageClicks(idOf(b)) === 1 ? true : undefined), 5_000, "the press reached the second page");
+		assert.ok(frozen.t >= focus1.t);
+		s.key("Escape");
+		await s.waitEvent((e) => e.ev === "release" && e.id === idOf(b), 3_000, "second released");
+		const before = sends(s, idOf(b)).length + sends(s, idOf(first)).length;
+		s.type("qq");
+		await s.waitFor(() => (/qq/.test(s.capture()) ? true : undefined), 3_000, "the editor has focus, not the first widget");
+		await sleep(300);
+		assert.equal(sends(s, idOf(b)).length + sends(s, idOf(first)).length, before);
+		assert.equal(count("focus", idOf(first)), 1, "focus did not return to the first widget");
+		s.key("BSpace", "BSpace");
 	});
 });
 

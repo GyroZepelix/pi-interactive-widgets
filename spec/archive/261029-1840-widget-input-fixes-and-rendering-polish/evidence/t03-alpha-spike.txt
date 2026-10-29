@@ -1,0 +1,3 @@
+default {"colorType":2,"hasAlpha":false,"w":400,"h":120,"firstPixelRGBA":[]}
+override {"colorType":6,"hasAlpha":true,"w":400,"h":120,"firstPixelRGBA":[0,0,0,0]}
+captureScreenshot {"colorType":6,"hasAlpha":true,"w":400,"h":120,"firstPixelRGBA":[0,0,0,0]}

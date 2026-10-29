@@ -38,6 +38,11 @@ export interface WidgetPageOptions extends WidgetHandlers {
 	policy?: NetworkPolicy | undefined;
 	/** CSS custom properties injected on `:root`, for example `{"--pi-bg": "#1e1e2e"}`. */
 	theme?: Readonly<Record<string, string>> | undefined;
+	/**
+	 * Transparent page background (RQ05): frames carry alpha so the terminal background shows through wherever the page
+	 * paints nothing. Otherwise the page is painted `--pi-bg` or the dark default `#1e1e2e`.
+	 */
+	transparent?: boolean | undefined;
 	/** Frame rate cap enforced by delaying screencast acks. */
 	maxFps?: number | undefined;
 	/** How long `open` waits for the first frame. */
@@ -123,8 +128,11 @@ export function wrapDocument(html: string, title = "widget"): string {
 const THEME_NAME = /^--[a-zA-Z0-9_-]+$/;
 const THEME_VALUE = /^[^;{}<>\\]*$/;
 
+/** Page color behind transparent frames when an image must be opaque (`check_widget`), and the opaque default. */
+export const DEFAULT_PAGE_BG = "#1e1e2e";
+
 /** Base CSS injected at document start; layered so any unlayered author CSS wins. */
-export function baseCss(theme: Readonly<Record<string, string>> = {}): string {
+export function baseCss(theme: Readonly<Record<string, string>> = {}, transparent = false): string {
 	const vars = Object.entries(theme)
 		.filter(([k, v]) => THEME_NAME.test(k) && THEME_VALUE.test(v))
 		.map(([k, v]) => `${k}: ${v};`)
@@ -134,7 +142,7 @@ export function baseCss(theme: Readonly<Record<string, string>> = {}): string {
 		`:root { color-scheme: dark; ${vars} }`,
 		"*, *::before, *::after { box-sizing: border-box; }",
 		"html, body { margin: 0; height: 100%; overflow: hidden; }",
-		"body { background: var(--pi-bg, #1e1e2e); color: var(--pi-fg, #cdd6f4); font: 14px/1.4 system-ui, sans-serif; }",
+		`body { background: var(--pi-bg, ${transparent ? "transparent" : DEFAULT_PAGE_BG}); color: var(--pi-fg, #cdd6f4); font: 14px/1.4 system-ui, sans-serif; }`,
 		"select { appearance: base-select; }",
 		"::picker(select) { appearance: base-select; }",
 		"}",
@@ -311,7 +319,9 @@ export class WidgetPage {
 		});
 		await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
 		await cdp.send("Runtime.addBinding", { name: BINDING });
-		await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: injectionScript(baseCss(this.opts.theme)) });
+		// Chromium paints an opaque white base under the page unless the default background is overridden (RQ05).
+		if (this.opts.transparent) await cdp.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
+		await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: injectionScript(baseCss(this.opts.theme, this.opts.transparent)) });
 		await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
 		const { windowId } = await cdp.send("Browser.getWindowForTarget");
 		this.windowId = windowId;
