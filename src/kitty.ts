@@ -190,6 +190,11 @@ export class KittyImage {
 		return true;
 	}
 
+	/** The retained RAM still (base64 PNG), if any. */
+	get still(): string | undefined {
+		return this.last?.data;
+	}
+
 	/** A frame was sent and its RAM still is retained for re-sends. */
 	get retained(): boolean {
 		return this.last !== undefined;

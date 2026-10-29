@@ -33,6 +33,16 @@ The agent calls `show_widget` with exactly one of:
 
 Optional `title`, `cols`, and `rows` set the title and the size in terminal cells (default `min(100, terminal width - 4)` x 20, at most 256 each). Each call renders a new widget instance and returns its id, cell size, CSS viewport, and any requests blocked or JS errors seen while loading. For widgets it edits and re-shows, the agent should write them to a scratch folder such as `./.pi-widgets/<name>/index.html` and pass `path`.
 
+### Agent guidance
+
+The model sees only what it needs at all times; the detailed authoring guide is a plain file it reads on demand.
+
+- **Tool description:** `show_widget`'s description is short (about 150 tokens): the parameters, the fixed `cols` x `rows` viewport without page scrolling, click instead of hover, the bridge and network in one line each, and the absolute path of the guide with the instruction to read it before the first widget in a session.
+- **Rubric (always on):** while `show_widget` is active, a few bullets in the system prompt Guidelines say when a widget helps: on explicit request, or when something is better seen than read (design variants, data shapes), when stepping through state or time helps (state machines, rebases, races, algorithms), or when the user asks to explain a concept with motion, growth, or spatial structure. Widgets are mainly visual displays: decisions and questions go through text or `ask_user_question`, a widget collects input only when the choice is inherently visual (color, dragging visual items into order, picking a point or region), and widgets are not for approvals or choosing among options, forms, code, commands, error explanations, or static architecture.
+- **Guide file:** [`guide/widgets.md`](guide/widgets.md) (shipped with the package) holds the rubric with use and do-not-use examples (including "show, then ask with `ask_user_question`"), layout and input rules, a bridge example and how delivered data appears, network, lifecycle, and `check_widget`.
+- **Read tracking:** a successful `read` of the guide (relative, absolute, or `~` path, resolved against the session cwd) marks it as read for the current session runtime. Until then each `show_widget` result still renders the widget and ends with one line asking the agent to read the guide before editing that widget or creating another. Compaction and a new session (including `/new`, `/resume`, and `/reload`) reset the mark. Reads through other tools (for example `bash cat`) are not detected; the pointer line then simply stays.
+- **`check_widget({id})`:** lets the agent see a widget it rendered, on demand (the user reports a visual problem, or the load listed errors), not after every render. It returns one PNG with the long edge at most 1000 px (about 1.3k image tokens) plus a text report: state (live, frozen, closed), cells and CSS viewport, image source and size, JS errors and blocked requests since the last load, document scroll size versus viewport, and up to 10 elements that overflow the viewport or are clipped by an `overflow: hidden` ancestor. An open widget (live or paused) gets a fresh capture without being woken, focused, or resized; a closed widget shows its last still, and the page parts of the report say "closed: not inspected; showing the last still". An unknown id, or a widget without any image, returns a text-only error. It never revives a widget.
+
 ### Interacting
 
 - **Under tmux, click to interact.** Pi enables only button-motion mouse tracking inside tmux (and Zellij or screen), so a widget never sees the pointer just hovering. A click wakes a paused widget, focuses it, and reaches the page. The title line says "click to interact".
@@ -42,6 +52,8 @@ Optional `title`, `cols`, and `rows` set the title and the size in terminal cell
 - The extension never changes the terminal's mouse mode.
 
 ### Writing widgets (advice for prompts and hand-written pages)
+
+The agent-facing version of this advice is [`guide/widgets.md`](guide/widgets.md).
 
 - Design for the fixed viewport without page scrolling. Give growing areas `min-height: 0` and `overflow: auto` or `hidden`.
 - Input is cell-precise (about 8x17 CSS px per cell at the default DPR), so make click targets at least about 24 px.

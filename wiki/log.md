@@ -26,3 +26,11 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/terminal-graphics-tmux.md` (new), `wiki/observations.md` (new), `wiki/index.md`.
 - Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
 - Notes: episode and per-spec ledger section recorded through their stable generic routes; architecture, module, and workflow pages remain TBD pending an initial codebase ingest.
+
+## [2026-10-29] dream | Gamemaster checkpoint 261029-1116-widget-usage-guidance-and-check-widget/direct
+
+- Trigger: Dream run for "Gamemaster checkpoint: 261029-1116-widget-usage-guidance-and-check-widget/direct".
+- Inputs: current implementation session; `spec/archive/261029-1116-widget-usage-guidance-and-check-widget/` (plan.md, verification.md, outcome.md); `scripts/perf/lib.ts`, `tests/e2e/lib.ts`; `wiki/observations.md`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md` (promoted the dedicated tmux window observation into Test tooling), `wiki/observations.md` (promoted observation removed).
+- Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
+- Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change.

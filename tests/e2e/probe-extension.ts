@@ -1,5 +1,6 @@
 // E2E-only Pi extension: a scripted faux model (no network, no real model) that records every context it receives.
-// A user prompt `e2e-tool <json>` makes the model call `show_widget` with those arguments; anything else answers "ok".
+// A user prompt `e2e-tool <json>` makes the model call `show_widget` with those arguments, `e2e-call <tool> <json>` any
+// other tool; anything else answers "ok".
 import { appendFileSync } from "node:fs";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -22,6 +23,8 @@ export default function e2eProbe(pi: ExtensionAPI): void {
 		const prompt = last?.role === "user" ? text(last.content) : "";
 		const m = /^e2e-tool (\{[\s\S]*\})\s*$/.exec(prompt);
 		if (m?.[1]) return fauxAssistantMessage(fauxToolCall("show_widget", JSON.parse(m[1]) as Parameters<typeof fauxToolCall>[1]), { stopReason: "toolUse" });
+		const c = /^e2e-call ([a-z_]+) (\{[\s\S]*\})\s*$/.exec(prompt);
+		if (c?.[1] && c[2]) return fauxAssistantMessage(fauxToolCall(c[1], JSON.parse(c[2]) as Parameters<typeof fauxToolCall>[1]), { stopReason: "toolUse" });
 		return fauxAssistantMessage("ok");
 	};
 	faux.setResponses(Array.from({ length: 200 }, () => respond));

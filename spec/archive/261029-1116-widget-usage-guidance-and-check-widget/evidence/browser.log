@@ -1,0 +1,64 @@
+
+> pi-interactive-widgets@0.1.0 test:browser
+> node --import tsx --test --test-concurrency=1 tests/*.browser.test.ts
+
+▶ check_widget capture (AC04)
+  ✔ a live page gives a fresh PNG whose long edge is at most 1000 px (156.745417ms)
+  ℹ live capture 1000x425
+  ✔ a frozen page is captured without thawing: it stays frozen and minimized and casts no frames (714.925834ms)
+  ℹ frozen capture 1000x425
+✔ check_widget capture (AC04) (872.327625ms)
+▶ check_widget layout probe (AC05)
+  ✔ lists the overflowing and clipped elements and a scroll size larger than the viewport (67.738833ms)
+  ℹ {"viewport":{"width":720,"height":306},"scroll":{"width":720,"height":624},"issues":[{"el":"span#wide","x":0,"y":0,"w":400,"h":20,"why":"clipped by div.box (overflow: hidden)"},{"el":"div#tall","x":0,"y":124,"w":720,"h":500,"why":"beyond the viewport (bottom by 318 px)"}],"total":2}
+  ✔ reports none on a clean page with a scrolling log (46.5415ms)
+  ✔ the probe runs in an isolated world the page cannot see (44.655375ms)
+✔ check_widget layout probe (AC05) (159.212833ms)
+▶ default policy
+  ✔ loads an allowlisted CDN script and blocks a non-allowlisted script and an external fetch (864.574334ms)
+  ✔ makes WebRTC unavailable and blocks navigation away, popups, and form submissions (1158.106208ms)
+✔ default policy (2025.4925ms)
+▶ open policy
+  ✔ allows an external fetch and keeps localhost, private, and Tailscale addresses blocked (904.495917ms)
+  ✔ U2: Chrome's Local Network Access blocks a public name that resolves to loopback (second layer) (708.689875ms)
+  ℹ U2 open-mode fetch to lvh.me (resolves to 127.0.0.1): error TypeError; extension blocks: []
+  ✔ listed local hosts are reachable in open and default mode (1415.70575ms)
+  ✔ open mode with a listed local host blocks a WebSocket to an unlisted local address (RQ09 correction) (696.3245ms)
+  ✔ leaves no process started by the tests (0.271917ms)
+✔ open policy (3725.873334ms)
+▶ serving (U1) and injection
+  ✔ U1: synthetic https origin gives a secure context, localStorage, ES modules, and workers (167.72325ms)
+  ℹ U1 {"secure":true,"origin":"https://w-44b2d562e9aa.pi-widget.invalid","module":42,"localStorage":"v","worker":"classic true dep","moduleWorker":"module true 42","data":{"ok":true},"css":"dashed"}
+  ✔ inline fragments load in the shell with base CSS, theme variables, and dark scheme (146.961333ms)
+  ✔ serves full documents as written and lets author CSS win over the base layer (145.080834ms)
+  ✔ confines path widgets to the entry folder, including through symlinks (166.750791ms)
+  ✔ rejects a missing entry file before opening a page (0.82825ms)
+  ✔ captures JS errors (160.294875ms)
+✔ serving (U1) and injection (788.269625ms)
+▶ bridge
+  ✔ rejects pi.submit without user activation and accepts it after a dispatched click (286.864625ms)
+  ✔ queues pi.send within size and count caps (155.714958ms)
+✔ bridge (442.776542ms)
+▶ screencast, freeze, and input
+  ✔ streams full-resolution 1440x612 PNG frames for a 90x18-cell widget at DPR 2 (147.196125ms)
+  ✔ produces no frames for an unchanged page (1987.557167ms)
+  ✔ paces an animating page to at most 10 fps (2372.661375ms)
+  ℹ frames in 2 s: 17 (8.5 fps), min gap 112.4 ms
+  ✔ freezes by minimizing (no frames) and thaws to a new frame within about 50 ms (5223.583792ms)
+  ℹ thaw to first frame ms: 6.4, 7.2, 7.2, 7.6, 7.7
+  ✔ two pages have their own windows: freezing one leaves the other streaming (02.02 discovery) (1519.518167ms)
+  ✔ thaws a static page to a new frame (160.120667ms)
+  ✔ lands all 18 grid clicks and a 60-click burst during streaming (1151.983375ms)
+  ✔ delivers wheel, typed text, and special keys (199.887834ms)
+✔ screencast, freeze, and input (12762.963125ms)
+▶ lifecycle
+  ✔ closing the last page closes the browser and leaves no process started by the tests (202.316667ms)
+✔ lifecycle (202.414042ms)
+ℹ tests 29
+ℹ suites 8
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21835.639667

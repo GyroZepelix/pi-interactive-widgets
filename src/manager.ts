@@ -9,9 +9,11 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { type Component, colorToHex, getCellDimensions, type TUI } from "@earendil-works/pi-tui";
 import { deliveryOptions, widgetMessage } from "./bridge.js";
 import { BrowserHost } from "./browser.js";
+import { CHECK_MAX_EDGE, type CheckReport, type LayoutProbe, PROBE_SCRIPT } from "./check.js";
 import type { WidgetConfig } from "./config.js";
 import { type CellSize, cssCellSize, type Environment, tmuxCellSize, tmuxDisplay } from "./env.js";
 import { type CellBox, imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
+import { limitPng } from "./png.js";
 import { type BlockedRequest, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
 
 /** Persisted with the tool result (and dev entries); enough to render the row after a reload. */
@@ -594,6 +596,51 @@ export class WidgetManager {
 			this.resendQueued = false;
 			this.resendAll(reason);
 		});
+	}
+
+	/**
+	 * `check_widget` (RQ05): a fresh capture plus layout probe for an open (live or frozen) page, the RAM still for a
+	 * closed widget. Read-only: never revives, thaws, focuses, resizes, or touches the LRU order. Undefined for an
+	 * unknown id; `image` is undefined when no image exists.
+	 */
+	async check(id: string): Promise<{ report: CheckReport; image?: string | undefined } | undefined> {
+		const w = this.widgets.get(id);
+		if (!w) return undefined;
+		const d = w.details;
+		const report: CheckReport = { id, title: d.title, state: w.closed ? "closed" : w.frozen ? "frozen" : "live", cols: d.cols, rows: d.rows, cssWidth: d.cssWidth, cssHeight: d.cssHeight };
+		let image: string | undefined;
+		const page = w.page;
+		if (page && !page.closed) {
+			try {
+				const shot = limitPng(await page.capture(CHECK_MAX_EDGE), CHECK_MAX_EDGE);
+				image = shot.data;
+				report.image = { source: "fresh capture", width: shot.width, height: shot.height };
+			} catch (err) {
+				devLog({ ev: "error", id, what: "check-capture", message: err instanceof Error ? err.message : String(err) });
+			}
+			let probe: LayoutProbe | undefined;
+			let probeError: string | undefined;
+			try {
+				probe = await page.inspect<LayoutProbe>(PROBE_SCRIPT);
+			} catch (err) {
+				probeError = err instanceof Error ? err.message : String(err);
+			}
+			report.page = { errors: [...page.errors], blocked: [...page.blocked], probe, probeError };
+			// The page may have closed meanwhile; the state then says so and the still below stands in.
+			if (page.closed) report.state = "closed";
+		}
+		if (!image && w.image.still) {
+			try {
+				const still = limitPng(w.image.still, CHECK_MAX_EDGE);
+				image = still.data;
+				report.image = { source: "last still", width: still.width, height: still.height };
+			} catch (err) {
+				devLog({ ev: "error", id, what: "check-still", message: err instanceof Error ? err.message : String(err) });
+			}
+		}
+		if (report.state === "closed") report.page = undefined;
+		devLog({ ev: "check", id, state: report.state, source: report.image?.source ?? null, width: report.image?.width ?? null, height: report.image?.height ?? null, issues: report.page?.probe?.total ?? null });
+		return { report, image };
 	}
 
 	/** Re-sends every retained RAM still at its display size; returns the ids sent. */

@@ -12,7 +12,7 @@ export const ROOT = resolve(import.meta.dirname, "../..");
 export { sleep };
 
 export type DevEvent = { t: number; ev: string; id?: string; [k: string]: unknown };
-export type Turn = { t: number; messages: { role: string; text: string }[] };
+export type Turn = { t: number; messages: { role: string; text: string; customType?: string; toolName?: string }[] };
 
 export interface StartOptions {
 	tuiMode?: "fullscreen" | "regular";

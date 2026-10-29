@@ -1,37 +1,29 @@
-// Pi entry: `show_widget` tool and renderer, `/widgets-refresh`, `/widget-dev` (dev only), session events, and config.
+// Pi entry: `show_widget` tool and renderer, `check_widget`, guide read tracking, `/widgets-refresh`, `/widget-dev` (dev only), session events, and config.
 import { resolve } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { BrowserMissingError } from "./browser.js";
+import { formatCheck } from "./check.js";
 import { noticeLine, type RowDetails, WidgetComponent } from "./component.js";
 import { configPath, DEFAULT_CONFIG, EXTENSION_NAME, loadConfig } from "./config.js";
 import { detectEnvironment, pointerMotionReported } from "./env.js";
+import { GuideTracker } from "./guide.js";
 import { devLog, type SessionState, timersFromEnv, type Widget, WidgetManager } from "./manager.js";
 import type { WidgetSource } from "./page.js";
+import { CHECK_DESCRIPTION, DESCRIPTION, GUIDELINES } from "./prompts.js";
 
 const TOOL = "show_widget";
+const CHECK_TOOL = "check_widget";
 const DEV_ENTRY = "pi-interactive-widgets-dev";
 const PROBE = "pi-interactive-widgets-probe";
-
-const DESCRIPTION = [
-	"Render an interactive HTML widget inline in the user's terminal transcript (real headless Chromium, streamed as terminal graphics).",
-	"Pass exactly one of `html` (a body fragment or a full document; inline <style> and <script> work) or `path` (an .html entry file; files in its folder and subfolders are served, nothing outside).",
-	"For widgets you will edit and re-show, write them to a scratch folder such as ./.pi-widgets/<name>/index.html and pass `path`.",
-	"Each call renders a new widget instance. Size: `cols` x `rows` terminal cells (default min(100, terminal width - 4) x 20, at most 256 each); the result reports the CSS viewport.",
-	"Layout: design for that fixed viewport without page scrolling; give growing areas (logs, lists) `min-height: 0` and `overflow: auto` or `hidden` so new content never resizes other elements; size <canvas> backing stores with a ResizeObserver. Dark background; Pi theme colors are available as CSS variables (--pi-accent, --pi-muted, --pi-border, --pi-success, --pi-error, --pi-warning).",
-	"Input is cell-precise (about 8x17 CSS px per cell), so make click targets at least about 24 px. Use click-triggered UI instead of hover effects: under tmux the page sees pointer moves only while a button is held, so :hover styles and hover tooltips do not track the pointer. In-page <select> works; avoid native pickers (input type=date, time, color, month, week) and build custom controls instead.",
-	"Bridge: in page JS, `window.pi.send(json)` queues data that reaches you with the user's next message after they release the widget; `window.pi.submit(json)` delivers immediately and starts your turn, but only from a user gesture (for example a click handler). Data is JSON-serializable and capped at 64 KB per call.",
-	"Network: scripts, styles, and fonts load only from cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh, fonts.googleapis.com, and fonts.gstatic.com; fetch, XHR, and WebSocket go only to the widget's own origin (the user can allow more hosts in config). Images from the page itself, data:, and blob:. No WebRTC, popups, form submissions, or navigation away. Blocked requests and JS errors from the initial load are listed in the result.",
-	"The user interacts in Pi fullscreen mode: a click wakes and focuses the widget (hover also wakes it outside tmux); Escape or a click elsewhere releases it, and an idle widget pauses on its last frame. In regular mode they see a still image.",
-	"Lifecycle: at most 5 widget pages stay open, and a page paused for 30 minutes closes; a closed widget, or one from a resumed session, reopens on click with fresh JS state (inline HTML from this call, path widgets from the current file). Do not rely on page state surviving; send what matters through the bridge.",
-].join(" ");
 
 export default function interactiveWidgets(pi: ExtensionAPI): void {
 	const state: SessionState = { pi, env: detectEnvironment(), config: DEFAULT_CONFIG, motion: pointerMotionReported(), timers: timersFromEnv() };
 	const manager = new WidgetManager(state);
 	const dev = process.env.PI_WIDGETS_DEV === "1";
 	const entryComponents = new Map<string, WidgetComponent>();
+	const guide = new GuideTracker();
 
 	const interactive = (ctx: ExtensionContext): boolean => ctx.mode === "tui" && ctx.hasUI;
 
@@ -54,6 +46,8 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 				? `The user can ${state.motion ? "hover or click" : "click"} it in the transcript; Escape releases it. pi.send data arrives with their next message.`
 				: "Pi is in regular TUI mode: the user sees a still image and needs fullscreen mode (/settings, TUI mode) to interact.",
 		);
+		const pointer = guide.pointer();
+		if (pointer) lines.push(pointer);
 		return lines.join("\n");
 	}
 
@@ -69,6 +63,7 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		label: "Widget",
 		description: DESCRIPTION,
 		promptSnippet: "show_widget: render an interactive HTML widget inline in the terminal transcript",
+		promptGuidelines: GUIDELINES,
 		parameters: Type.Object({
 			html: Type.Optional(Type.String({ description: "HTML body fragment or full document (inline <style> and <script> allowed)" })),
 			path: Type.Optional(Type.String({ description: "Path to an .html entry file; its folder and subfolders are served" })),
@@ -126,6 +121,45 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerTool({
+		name: CHECK_TOOL,
+		label: "Check widget",
+		description: CHECK_DESCRIPTION,
+		promptSnippet: "check_widget: inspect a rendered widget (image plus layout report) when the user reports a problem",
+		parameters: Type.Object({
+			id: Type.String({ description: "Widget id returned by show_widget" }),
+		}),
+		async execute(_toolCallId, params) {
+			const id = params.id.trim();
+			const checked = await manager.check(id);
+			if (!checked) {
+				throw new Error(`Unknown widget id ${JSON.stringify(id)}: no widget with this id exists in this Pi process (widgets from a resumed or restarted session are unknown until the user clicks them).`);
+			}
+			const text = formatCheck(checked.report);
+			if (!checked.image) throw new Error(`Widget ${id} has no image to show yet.\n${text}`);
+			return { content: [{ type: "text", text }, { type: "image", data: checked.image, mimeType: "image/png" }], details: checked.report };
+		},
+		renderCall(args, theme) {
+			return textComponent([theme.fg("dim", `◆ check_widget ${typeof args.id === "string" ? args.id : ""}`)]);
+		},
+		renderResult(result, options, theme) {
+			if (options.isPartial) return textComponent([]);
+			const text = result.content.find((c) => c.type === "text");
+			const first = text && "text" in text ? (text.text.split("\n")[0] ?? "") : "";
+			return textComponent([theme.fg("dim", first)]);
+		},
+	});
+
+	// Guide read tracking (RQ04): a successful `read` of the guide marks it; compaction and session starts reset it.
+	pi.on("tool_result", async (event, ctx) => {
+		if (event.toolName !== "read") return;
+		if (guide.onRead(event.input, ctx.cwd, event.isError)) devLog({ ev: "guide-read", path: guide.path });
+	});
+	pi.on("session_compact", async () => {
+		guide.reset();
+		devLog({ ev: "guide-reset", reason: "compact" });
+	});
+
 	pi.registerCommand("widgets-refresh", {
 		description: "Re-send every widget image (after a tmux reattach or when images went blank)",
 		handler: async (_args, ctx) => {
@@ -170,6 +204,7 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (event, ctx) => {
 		state.ctx = ctx;
+		guide.reset();
 		state.env = detectEnvironment();
 		state.motion = pointerMotionReported();
 		state.timers = timersFromEnv();

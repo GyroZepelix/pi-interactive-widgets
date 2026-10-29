@@ -1,0 +1,59 @@
+
+> pi-interactive-widgets@0.1.0 test:e2e
+> node --import tsx --test --test-concurrency=1 tests/e2e/*.e2e.ts
+
+▶ guide pointer and check_widget (dev timers: idle 4 s, close 3 s)
+  ✔ AC03: show_widget results carry the guide pointer until the guide was read (2841.7835ms)
+  ✔ AC04: a frozen widget is captured without waking or focusing it; a closed one shows its still without revive (4347.242792ms)
+✔ guide pointer and check_widget (dev timers: idle 4 s, close 3 s) (8095.250792ms)
+▶ run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, focus 2.5 s)
+  ✔ AC06: a new widget freezes after the idle time from creation; a focused one after the focus time without input (4785.269709ms)
+  ℹ idle freeze 1503 ms after creation; focused freeze 2437 ms after the last input
+  ✔ AC06: making widget B live freezes widget A immediately (2579.998166ms)
+  ℹ B frozen 2 ms before A live
+  ✔ AC03 and AC07: at most 5 pages; the least recently used frozen page closes; a click revives it warm with fresh JS state (2289.811333ms)
+  ℹ revive 41 ms (warm), press to revived 44 ms
+  ✔ AC12 and AC13: a narrow pane scales the widget to fit with clicks still hitting; widening restores full size; resizes re-send stills (3450.131541ms)
+  ℹ narrow: 60x9 shown as 40x6 (scale 0.667); 18/18 hits
+  ✔ AC13: /widgets-refresh re-sends every retained still (354.550333ms)
+✔ run-time policy, LRU, scaling, and recovery (dev timers: idle 1.5 s, focus 2.5 s) (14410.691041ms)
+▶ close timer, browser exit, and revive from the current file (dev timers: idle 1 s, close 2.5 s)
+  ✔ AC03: a page frozen for the close time closes and the browser exits when no pages remain (4042.977083ms)
+  ✔ AC07: a path widget revives from the current file; a deleted file shows source file missing with the still (3770.514542ms)
+  ℹ cold revive 118 ms
+  ✔ AC07: an inline tool widget revives from its tool arguments (5187.175125ms)
+✔ close timer, browser exit, and revive from the current file (dev timers: idle 1 s, close 2.5 s) (13931.677584ms)
+▶ resume and restart (AC07) and kill -9 (AC03)
+  ✔ after a restart with the session continued, the widget row shows a placeholder line until clicked, then revives (3917.325417ms)
+  ℹ session_start reason startup
+  ℹ cold revive after restart 129 ms
+  ✔ RQ17: /reload releases the pages and the browser; the row then shows the placeholder line and revives on click (2524.874125ms)
+  ✔ kill -9 of Pi leaves no Chromium process it started (1370.196167ms)
+  ℹ killed Pi 21894; 4 browser processes exited
+✔ resume and restart (AC07) and kill -9 (AC03) (7813.25825ms)
+▶ fullscreen session: input, focus, scrolling, bridge, tool
+  ✔ AC05: 18 target clicks and a 60-click burst all hit (3720.509167ms)
+  ✔ PD09: under tmux a click wakes a frozen widget and reaches the page; release freezes it immediately (1163.99725ms)
+  ℹ release to frozen 1 ms; thaw start to first frame 2 ms; live to page press 0 ms
+  ✔ AC05: typed keys reach a focused input; ctrl+u and ctrl+d scroll while focused; Escape releases (2581.937208ms)
+  ✔ AC08: pi.send arrives with the next user turn; pi.submit needs activation and delivers immediately (5121.928542ms)
+  ✔ RQ01: the agent's show_widget call renders and returns id, size, viewport, blocked requests, and errors (919.6025ms)
+✔ fullscreen session: input, focus, scrolling, bridge, tool (14441.13875ms)
+▶ regular mode session (AC11)
+  ✔ shows the still plus hint in regular mode and becomes interactive after switching to fullscreen (2318.630208ms)
+✔ regular mode session (AC11) (3252.360833ms)
+▶ unsupported terminal (AC14 partial)
+  ✔ shows the notice with the title and tells the agent, without starting a browser (1401.942333ms)
+✔ unsupported terminal (AC14 partial) (2283.732375ms)
+▶ failures without crashing Pi (AC15)
+  ✔ an invalid config produces a notice and the defaults apply (1363.181584ms)
+  ✔ a missing Chromium binary produces a notice with the install command; Pi keeps running (3054.193584ms)
+✔ failures without crashing Pi (AC15) (4417.67225ms)
+ℹ tests 22
+ℹ suites 8
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 68802.267333

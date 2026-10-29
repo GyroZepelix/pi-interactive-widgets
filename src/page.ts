@@ -528,6 +528,36 @@ export class WidgetPage {
 		await this.cdp.send("Browser.setWindowBounds", { windowId: this.windowId, bounds: { windowState } });
 	}
 
+	// ---- check_widget (read-only) ----
+
+	/** Evaluates an expression in an isolated world (the page cannot observe or tamper with it). */
+	private async evaluateIsolated<T>(expression: string, worldName: string): Promise<T> {
+		const { frameTree } = await this.cdp.send("Page.getFrameTree");
+		const { executionContextId } = await this.cdp.send("Page.createIsolatedWorld", { frameId: frameTree.frame.id, worldName });
+		const r = await this.cdp.send("Runtime.evaluate", { expression, contextId: executionContextId, returnByValue: true });
+		if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+		return r.result.value as T;
+	}
+
+	/**
+	 * Fresh PNG screenshot of the viewport, scaled in Chromium so its long edge is about `maxEdge` px. Works on a frozen
+	 * (minimized) page without thawing it; no input, focus, or viewport change.
+	 */
+	async capture(maxEdge: number): Promise<string> {
+		if (this.state === "closed") throw new Error("page closed");
+		const dpr = (await this.evaluateIsolated<number>("devicePixelRatio", "pi-widget-check")) || 1;
+		const { cssWidth: width, cssHeight: height } = this.opts;
+		const scale = Math.min(1, maxEdge / (Math.max(width, height) * dpr));
+		const r = await this.cdp.send("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width, height, scale }, captureBeyondViewport: false });
+		return r.data;
+	}
+
+	/** Runs a read-only probe script in an isolated world and returns its JSON value. */
+	inspect<T>(script: string): Promise<T> {
+		if (this.state === "closed") return Promise.reject(new Error("page closed"));
+		return this.evaluateIsolated<T>(script, "pi-widget-check");
+	}
+
 	// ---- input (CSS pixels) ----
 
 	async mouse(ev: MouseInput): Promise<void> {

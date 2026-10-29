@@ -19,6 +19,7 @@ Repository-local planning and execution artifacts.
 | Item | Kind | Status | Updated |
 | --- | --- | --- | --- |
 | [Interactive HTML widgets for Pi](./archive/261028-1700-interactive-html-widgets-for-pi/plan.md) | work-item | completed | 2026-10-29 |
+| [Widget usage guidance and check_widget](./archive/261029-1116-widget-usage-guidance-and-check-widget/plan.md) | work-item | completed | 2026-10-29 |
 <!-- spec-items:archive:end -->
 
 ## Templates
