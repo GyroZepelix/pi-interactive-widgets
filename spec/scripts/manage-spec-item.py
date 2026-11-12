@@ -5,7 +5,7 @@
 #   "PyYAML>=6.0,<7",
 # ]
 # ///
-"""Manage repository-local spec work items through completed and superseded archival."""
+"""Manage repository-local spec work items through completed, superseded, and dropped archival."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import yaml
 
@@ -36,12 +37,13 @@ WORK_TYPES = {
     "documentation",
     "other",
 }
-ACTIVE_STATUSES = {"discovering", "revision_required", "ready_for_spec", "planned"}
-TERMINAL_STATUSES = {"completed", "superseded"}
+ACTIVE_STATUSES = {"discovering", "parked", "revision_required", "ready_for_spec", "planned"}
+TERMINAL_STATUSES = {"completed", "superseded", "dropped"}
 STATUSES = ACTIVE_STATUSES | TERMINAL_STATUSES
 REPLACEMENT_STATUSES = ACTIVE_STATUSES | {"completed"}
 TRANSITIONS = {
-    "discovering": {"ready_for_spec"},
+    "discovering": {"ready_for_spec", "parked"},
+    "parked": {"discovering"},
     "revision_required": {"ready_for_spec"},
     "ready_for_spec": {"planned", "revision_required"},
     "planned": {"revision_required"},
@@ -56,6 +58,12 @@ MARKDOWN_SUFFIXES = {".md", ".markdown"}
 DREAM_EPISODE_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}-\d{4}-[a-z0-9][a-z0-9-]*\.md$"
 )
+BACKLOG_RELATIVE_PATH = "spec/backlog.md"
+FENCED_CODE_PATTERN = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
+INLINE_CODE_PATTERN = re.compile(r"`[^`\n]*`")
+INLINE_LINK_PATTERN = re.compile(r"\]\(\s*(<[^>\n]*>|[^)\s]+)(?:\s+[^)]*)?\)")
+REFERENCE_LINK_PATTERN = re.compile(r"^[ ]{0,3}\[[^\]\n]+\]:\s*(<[^>\n]*>|\S+)", re.MULTILINE)
+URL_SCHEME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 class ProtocolError(Exception):
@@ -211,10 +219,13 @@ def validate_manifest_shape(item_dir: Path, manifest: dict[str, Any]) -> list[st
         "planned",
         "completed",
         "superseded",
+        "dropped",
     }:
         errors.append(
-            "quick-plan items must have status revision_required, ready_for_spec, planned, completed, or superseded"
+            "quick-plan items must have status revision_required, ready_for_spec, planned, completed, superseded, or dropped"
         )
+    if status == "parked" and route != "grill-to-spec":
+        errors.append("parked items require route grill-to-spec")
     if route == "grill-to-spec" and status not in STATUSES:
         errors.append("grill-to-spec items must use a supported lifecycle status")
     if status == "superseded":
@@ -305,7 +316,9 @@ def route_artifact(item_dir: Path, route: Any, status: Any) -> tuple[str | None,
     if route == "quick-plan":
         target = "plan.md"
     elif route == "grill-to-spec":
-        if status in {"planned", "completed"} or (item_dir / "plan.md").is_file():
+        if status == "parked":
+            target = "discovery.md"
+        elif status in {"planned", "completed"} or (item_dir / "plan.md").is_file():
             target = "plan.md"
         else:
             target = "discovery.md"
@@ -361,7 +374,7 @@ def validate_archive_operational(
     if schema == 1 and status != "completed":
         errors.append("schema 1 archives must have status completed")
     elif schema == 2 and status not in allowed_statuses:
-        errors.append("archived items must have status completed or superseded")
+        errors.append("archived items must have status completed, superseded, or dropped")
     replacement = manifest.get("superseded_by") if schema == 2 else None
     if schema == 2:
         if status == "superseded":
@@ -406,6 +419,10 @@ def validate_archive_operational(
         outcome = item_dir / "outcome.md"
         if not outcome.is_file() or outcome.is_symlink():
             full_errors.append("superseded items require regular non-symlink outcome.md")
+    if status == "dropped":
+        outcome = item_dir / "outcome.md"
+        if not outcome.is_file() or outcome.is_symlink():
+            full_errors.append("dropped items require regular non-symlink outcome.md")
 
     record = {
         "schema_version": schema,
@@ -482,6 +499,9 @@ def validate_item(
         errors.append("quick-plan items require plan.md")
     if route == "grill-to-spec" and not (item_dir / "discovery.md").is_file():
         errors.append("grill-to-spec items require discovery.md")
+    discovery = item_dir / "discovery.md"
+    if status == "parked" and (not discovery.is_file() or discovery.is_symlink()):
+        errors.append("parked items require regular non-symlink discovery.md")
     if status == "revision_required" and (not plan.is_file() or plan.is_symlink()):
         errors.append("revision_required items require regular non-symlink plan.md")
     if status == "ready_for_spec" and route == "quick-plan" and not dossiers:
@@ -649,7 +669,61 @@ def collect_operational_repository(
     active_items = collect_active_items(paths, require_manifests=True)
     archive_items, warnings = collect_archive_items(paths, require_manifests=True)
     validate_repository_relationships(active_items, archive_items)
+    warnings.extend(backlog_link_warnings(paths))
     return active_items, archive_items, warnings
+
+
+def relative_link_targets(text: str) -> list[tuple[int, str]]:
+    """Return (line, target) pairs for relative Markdown link targets outside code."""
+
+    def blank(match: re.Match[str]) -> str:
+        return re.sub(r"[^\n]", " ", match.group(0))
+
+    scrubbed = INLINE_CODE_PATTERN.sub(blank, FENCED_CODE_PATTERN.sub(blank, text))
+    matches = [
+        (match.start(1), match.group(1))
+        for pattern in (INLINE_LINK_PATTERN, REFERENCE_LINK_PATTERN)
+        for match in pattern.finditer(scrubbed)
+    ]
+    targets: list[tuple[int, str]] = []
+    for offset, raw in sorted(matches):
+        target = raw[1:-1].strip() if raw.startswith("<") and raw.endswith(">") else raw
+        if (
+            not target
+            or target.startswith(("#", "/", "\\"))
+            or URL_SCHEME_PATTERN.match(target)
+        ):
+            continue
+        targets.append((scrubbed.count("\n", 0, offset) + 1, target))
+    return targets
+
+
+def backlog_link_warnings(paths: dict[str, Path]) -> list[dict[str, Any]]:
+    """Report relative backlog links whose local target is missing; never fail."""
+    backlog = paths["spec"] / "backlog.md"
+    if not os.path.lexists(backlog):
+        return []
+    if not backlog.is_file() or backlog.is_symlink():
+        return [
+            {
+                "path": BACKLOG_RELATIVE_PATH,
+                "issues": ["backlog must be a regular non-symlink file"],
+            }
+        ]
+    try:
+        text = backlog.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [{"path": BACKLOG_RELATIVE_PATH, "issues": [f"cannot read backlog: {exc}"]}]
+    issues: list[str] = []
+    for line, target in relative_link_targets(text):
+        local = unquote(target.split("#", 1)[0].split("?", 1)[0])
+        if not local:
+            continue
+        if not os.path.exists(backlog.parent / local):
+            issues.append(f"line {line}: link target does not exist: {target}")
+    if not issues:
+        return []
+    return [{"path": BACKLOG_RELATIVE_PATH, "issues": issues}]
 
 
 def render_index(
@@ -1145,6 +1219,113 @@ def command_supersede(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     )
 
 
+def required_drop_outcome(item_dir: Path) -> None:
+    outcome = item_dir / "outcome.md"
+    if not outcome.is_file() or outcome.is_symlink():
+        raise ProtocolError("drop requires files: outcome.md")
+
+
+def preflight_new_drop(
+    item_dir: Path,
+    destination: Path,
+    paths: dict[str, Path],
+    include_outcome: bool,
+) -> dict[str, Any]:
+    if os.path.lexists(destination):
+        raise ProtocolError(f"archive destination already exists: {destination}")
+    manifest = validate_item(item_dir, paths)
+    if manifest["status"] not in ACTIVE_STATUSES:
+        raise ProtocolError(
+            f"item {manifest['id']} has status {manifest['status']!r}; drop requires an active status"
+        )
+    if include_outcome:
+        required_drop_outcome(item_dir)
+    render_index(paths)
+    references = canonical_reference_sources(paths, item_dir)
+    if references:
+        raise ProtocolError(
+            f"archive blocked by canonical reference spec/active/{item_dir.name} in: "
+            + ", ".join(references)
+        )
+    return manifest
+
+
+def finalize_dropped_item(
+    destination: Path,
+    paths: dict[str, Path],
+) -> tuple[dict[str, Any], bool]:
+    manifest = validate_item(destination, paths, allow_archive_statuses=set(ACTIVE_STATUSES))
+    status = manifest["status"]
+    if status in ACTIVE_STATUSES:
+        required_drop_outcome(destination)
+        finalized = True
+        manifest = dict(manifest)
+        manifest["status"] = "dropped"
+        manifest["updated_at"] = now_iso()
+        write_manifest(destination, manifest)
+    elif status == "dropped":
+        finalized = False
+    else:
+        raise ProtocolError(
+            f"archived item {manifest['id']} has unsupported status {status!r}"
+        )
+    manifest = validate_item(destination, paths)
+    report_warnings(update_index(paths))
+    return manifest, finalized
+
+
+def command_drop(args: argparse.Namespace, paths: dict[str, Path]) -> None:
+    item_dir, destination = archive_item_paths(args.item, paths, command="drop")
+    active_exists = os.path.lexists(item_dir)
+    archive_exists = os.path.lexists(destination)
+    if active_exists and archive_exists:
+        raise ProtocolError(f"item exists in both active and archive: {args.item}")
+
+    relative_source = str(item_dir.relative_to(paths["root"]))
+    relative_destination = str(destination.relative_to(paths["root"]))
+    if args.check:
+        if not active_exists:
+            if archive_exists:
+                raise ProtocolError(f"archive destination already exists: {destination}")
+            raise ProtocolError(f"active work item not found: {args.item}", code=3)
+        manifest = preflight_new_drop(item_dir, destination, paths, include_outcome=False)
+        emit(
+            {
+                "action": "drop",
+                "check": True,
+                "from": relative_source,
+                "id": manifest["id"],
+                "status": "dropped",
+                "to": relative_destination,
+                "valid": True,
+            }
+        )
+        return
+
+    recovered = False
+    if active_exists:
+        preflight_new_drop(item_dir, destination, paths, include_outcome=True)
+        os.rename(item_dir, destination)
+    elif archive_exists:
+        recovered = True
+    else:
+        raise ProtocolError(f"work item not found: {args.item}", code=3)
+
+    manifest, finalized = finalize_dropped_item(destination, paths)
+    emit(
+        {
+            "action": "drop",
+            "check": False,
+            "finalized": finalized,
+            "from": relative_source,
+            "id": manifest["id"],
+            "recovered": recovered,
+            "status": "dropped",
+            "to": relative_destination,
+        }
+    )
+
+
 def command_transition(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     item_dir, manifest = resolve_item(paths, args.item, set(), set())
     original = dict(manifest)
@@ -1171,6 +1352,12 @@ def command_transition(args: argparse.Namespace, paths: dict[str, Path]) -> None
         )
     if target == "planned" and not (item_dir / "plan.md").is_file():
         raise ProtocolError("planned requires plan.md")
+    if target == "parked":
+        discovery = item_dir / "discovery.md"
+        if manifest["route"] != "grill-to-spec":
+            raise ProtocolError("parked requires route grill-to-spec")
+        if not discovery.is_file() or discovery.is_symlink():
+            raise ProtocolError("parked requires regular non-symlink discovery.md")
     manifest["status"] = target
     manifest["updated_at"] = now_iso()
     write_manifest(item_dir, manifest)
@@ -1264,7 +1451,7 @@ def command_index(paths: dict[str, Path]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Create, resolve, transition, archive, supersede, validate, and index spec work items."
+        description="Create, resolve, transition, archive, supersede, drop, validate, and index spec work items."
     )
     parser.add_argument("--root", default=".", help="Repository root, default: current directory")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1309,6 +1496,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run non-mutating supersede preflight without requiring outcome.md",
     )
 
+    drop = subparsers.add_parser(
+        "drop", help="Archive one active item as dropped without a replacement"
+    )
+    drop.add_argument("--item", required=True, help="Explicit work item ID")
+    drop.add_argument(
+        "--check",
+        action="store_true",
+        help="Run non-mutating drop preflight without requiring outcome.md",
+    )
+
     validate = subparsers.add_parser(
         "validate", help="Validate one item, operational readiness, or exhaustive history"
     )
@@ -1344,6 +1541,8 @@ def main() -> int:
             command_archive(args, paths)
         elif args.command == "supersede":
             command_supersede(args, paths)
+        elif args.command == "drop":
+            command_drop(args, paths)
         elif args.command == "validate":
             command_validate(args, paths)
         elif args.command == "index":
