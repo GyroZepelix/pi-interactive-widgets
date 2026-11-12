@@ -7,7 +7,7 @@ import { BrowserMissingError } from "./browser.js";
 import { formatCheck } from "./check.js";
 import { ImageComponent, type ImageRowDetails, noticeLine, type RowDetails, WidgetComponent } from "./component.js";
 import { configPath, DEFAULT_CONFIG, EXTENSION_NAME, loadConfig } from "./config.js";
-import { detectEnvironment, pointerMotionReported } from "./env.js";
+import { detectEnvironment, passthroughNotice, pointerMotionReported, tmuxDisplay } from "./env.js";
 import { GuideTracker } from "./guide.js";
 import { DEFAULT_IMAGE_ROWS, parseImageSource, sourceName } from "./image.js";
 import { devLog, type ImageDetails, type SessionState, timersFromEnv, type Widget, WidgetManager } from "./manager.js";
@@ -26,6 +26,8 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 	const dev = process.env.PI_WIDGETS_DEV === "1";
 	const entryComponents = new Map<string, WidgetComponent>();
 	const guide = new GuideTracker();
+	/** The allow-passthrough notice is shown at most once per Pi process. */
+	let passthroughChecked = false;
 
 	const interactive = (ctx: ExtensionContext): boolean => ctx.mode === "tui" && ctx.hasUI;
 
@@ -271,6 +273,12 @@ export default function interactiveWidgets(pi: ExtensionAPI): void {
 		}
 		devLog({ ev: "session_start", reason: event.reason, env: state.env, motion: state.motion, config: state.config, timers: state.timers });
 		if (!interactive(ctx)) return;
+		if (!passthroughChecked) {
+			passthroughChecked = true;
+			const notice = passthroughNotice(state.env, tmuxDisplay());
+			devLog({ ev: "passthrough", notice: notice !== undefined });
+			if (notice) ctx.ui.notify(`${EXTENSION_NAME}: ${notice}`, "warning");
+		}
 		// The TUI (focus, mode, renders) is only reachable through UI factories; capture it with a transient widget.
 		ctx.ui.setWidget(PROBE, (tui) => {
 			// Also installs the raw input hook ahead of Pi's viewport listener (RQ01, RQ02).

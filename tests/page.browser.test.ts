@@ -296,6 +296,21 @@ describe("screencast, freeze, and input", () => {
 		await closeAll();
 	});
 
+	it("RQ01: a press, held-button moves without an explicit button, and a release drag a range input", async () => {
+		const w = await widget({
+			source: { html: `<input id=r type=range min=0 max=100 value=0 style="position:absolute;left:0;top:0;width:400px;margin:0;padding:0">` },
+		});
+		const y = await evaluate<number>(w, `(() => { const r = document.getElementById("r").getBoundingClientRect(); return r.y + r.height / 2; })()`);
+		await w.mouse({ type: "mousePressed", x: 2, y, buttons: 1 });
+		for (const x of [50, 100, 150, 200]) await w.mouse({ type: "mouseMoved", x, y, buttons: 1 });
+		const mid = Number(await evaluate<string>(w, `document.getElementById("r").value`));
+		await w.mouse({ type: "mouseReleased", x: 200, y, buttons: 0 });
+		assert.ok(mid >= 40 && mid <= 60, `value follows the drag before release, got ${mid}`);
+		await w.mouse({ type: "mouseMoved", x: 380, y });
+		assert.equal(Number(await evaluate<string>(w, `document.getElementById("r").value`)), mid, "a hover after release does not drag");
+		await closeAll();
+	});
+
 	it("delivers wheel, typed text, and special keys", async () => {
 		const w = await widget({ source: { path: join(FIXTURES, "static.html") } });
 		await evaluate(w, `document.body.insertAdjacentHTML("beforeend", "<div id=wheel style='position:absolute;left:0;top:0;width:300px;height:100px;overflow:auto'><div style='height:1000px'></div></div>")`);

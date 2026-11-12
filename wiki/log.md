@@ -50,3 +50,27 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/terminal-graphics-tmux.md` (new "Image payloads" section, scope line covers `show_image`, `locate` visible-pane limit).
 - Verification: re-read changed files, checked relative links, ran the memory safety scan, `git diff --check`.
 - Notes: episode and per-spec ledger section recorded through their stable generic routes; no index or MEMORY.md change; no observation added.
+
+## [2026-11-12] research | CDP drag input and tmux output discards
+
+- Trigger: Quick Plan for `261112-2105-widget-drag-input-and-blank-image-after-click-fix` produced reusable verified findings.
+- Inputs: `src/page.ts`, `src/component.ts` at `757ef52`; throwaway `WidgetPage` drag probe; https://raw.githubusercontent.com/tmux/tmux/master/tty.c; `tmux list-clients` output; global pi-tui 1.5.2 `terminal-image.js`, `tui-alt-screen.js`, `tui.js` diffed against the 1.4.0 devDependency.
+- Wiki pages changed: `wiki/research/drag-input-and-tmux-output-discards.md` (new), `wiki/index.md`.
+- Verification: re-read changed files, checked relative links, `git diff --check`.
+- Notes: tmux behavior read from master, not the installed 3.8 tag; the blank-image cause remains unconfirmed and is not recorded as current state.
+
+## [2026-11-12] update | Blank widget images under tmux passthrough, CDP drag button
+
+- Trigger: Implement T01 and T03 of `261112-2105-widget-drag-input-and-blank-image-after-click-fix` confirmed durable constraints.
+- Inputs: tmux 3.8 `input.c`, `screen-write.c`, `tty.c`, `server-client.c` (https://raw.githubusercontent.com/tmux/tmux/3.8/); dev-log repro and user observations recorded in the item's `verification.md`; `src/page.ts`, `src/env.ts`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md` (passthrough drop under `allow-passthrough on`, CDP drag button), `wiki/research/drag-input-and-tmux-output-discards.md` (follow-up note), `wiki/index.md`.
+- Verification: re-read changed files, checked relative links, `git diff --check`.
+- Notes: the write that sets `PANE_REDRAW` in the repro was not isolated (a stale smaller second client was attached).
+
+## [2026-11-12] dream | Gamemaster checkpoint 261112-2105-widget-drag-input-and-blank-image-after-click-fix/direct
+
+- Trigger: `/dream` run after "Gamemaster checkpoint: 261112-2105-widget-drag-input-and-blank-image-after-click-fix/direct".
+- Inputs: current implementation session; `spec/archive/261112-2105-widget-drag-input-and-blank-image-after-click-fix/` (plan.md, verification.md, outcome.md); `src/kitty.ts`, `src/manager.ts`, `tests/e2e/*.e2e.ts`; `wiki/terminal-graphics-tmux.md`.
+- Wiki pages changed: `wiki/observations.md` (four new observations under "E2E and user-assisted checks" and "Widget image diagnostics"). The run's episode is discoverable through `wiki/dreams/episodes.jsonl`.
+- Verification: re-read changed files, ran the metrics gate against the pre-write snapshot, ran memory safety scan, `git diff --check`.
+- Notes: `wiki/terminal-graphics-tmux.md` is over the page word limit, so new findings went to observations; the AC03a scroll-out is already covered by the `locate` bullet and was not stored again.

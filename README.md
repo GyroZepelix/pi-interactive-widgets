@@ -8,7 +8,7 @@ Widgets you are not using cost about 0% CPU, and no frame or still image is ever
 
 - Pi 1.4 in **fullscreen** TUI mode for interaction (`/settings`, TUI mode). In regular mode widgets show a still image.
 - A supported terminal:
-  - tmux with Ghostty as the client terminal (tested: Ghostty 1.4.0, tmux 3.6b with `set -g allow-passthrough on`), or kitty as the client (untested);
+  - tmux with Ghostty as the client terminal (tested: Ghostty 1.4.0, tmux 3.6b and 3.8), or kitty as the client (untested), with `set -g allow-passthrough all` in `tmux.conf` (see [Passthrough setting](#passthrough-setting-allow-passthrough-all));
   - plain Ghostty without tmux (best effort).
   Anywhere else the widget row shows `[widgets need tmux + Ghostty]` and the agent is told.
 - chrome-headless-shell in the puppeteer cache. The extension never downloads a browser; install or update it with:
@@ -82,9 +82,22 @@ The agent-facing version of this advice is [`guide/widgets.md`](guide/widgets.md
 ### Recovery
 
 - After a terminal resize the extension re-sends every retained still image; a click on a widget that is not focused (or hover, where reported) also restores its image.
+- **Image goes blank after a click (`allow-passthrough on`):** see [Passthrough setting](#passthrough-setting-allow-passthrough-all). Escape and then a click restore it.
 - **`/widgets-refresh`** re-sends all widget images by hand, for example after reattaching tmux from a new Ghostty window, or when images went blank (Ghostty evicts old images beyond its image memory limit).
-- **Hidden tmux windows:** tmux drops image data sent while the pane's window is not visible, for example when the agent shows a widget while you are in another window. The extension does not detect window switches, so such a widget stays blank until you click it (a widget that still has keyboard focus: press Escape first) or run `/widgets-refresh`.
+- **Hidden tmux windows (`allow-passthrough on`):** tmux drops image data sent while the pane's window is not visible, for example when the agent shows a widget while you are in another window. The extension does not detect window switches, so such a widget stays blank until you click it (a widget that still has keyboard focus: press Escape first) or run `/widgets-refresh`.
 - In plain Ghostty, Pi clears all images on full redraws (first render and size changes); the extension re-sends them afterwards.
+
+### Passthrough setting (`allow-passthrough all`)
+
+Widget images reach the terminal through tmux passthrough. Set this in `tmux.conf` (or run it once with `tmux set -g allow-passthrough all`):
+
+```tmux
+set -g allow-passthrough all
+```
+
+- **Why:** with `on`, tmux 3.8 drops passthrough while a redraw of the pane is pending, and it keeps a redraw pending while the terminal still has earlier output to receive. A widget frame upload is often 1-2 MB, so the next frame after a click can be lost. The terminal has already dropped the old image by then, so the widget's image area goes blank (the title line stays) until Escape and a click re-send it. With `all`, tmux forwards passthrough regardless of pending redraws: in a test, 60+ rapid clicks on a large widget never went blank, while with `on` 2 of 3 clicks did.
+- **Side effect:** `all` also forwards passthrough from panes that are not visible (other windows of the session), for every program in those panes, not only Pi.
+- When the value is `on`, the extension shows a one-time warning at startup. It only reads the setting and never changes tmux options.
 
 ## Showing images (`show_image`)
 

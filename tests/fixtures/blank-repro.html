@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>blank repro</title>
+<style>
+body{background:linear-gradient(135deg,#1e1e2e,#313244 60%,#45475a)}
+#head{position:absolute;left:8px;top:6px;font:bold 18px system-ui;color:#f9e2af}
+#tiles{position:absolute;left:8px;right:8px;top:36px;bottom:8px;display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.t{border-radius:8px;background:linear-gradient(160deg,#89b4fa,#74c7ec);color:#11111b;font:bold 16px system-ui;display:flex;align-items:center;justify-content:center;transition:transform .35s,background .35s}
+.t.on{background:linear-gradient(160deg,#f38ba8,#fab387);transform:rotate(8deg) scale(.92)}
+</style></head><body>
+<div id="head">clicks 0</div><div id="tiles"></div>
+<script>
+// T03 repro (261112-2105): static while idle; each click toggles a tile with a short transition and updates the counter.
+let n = 0;
+const tiles = document.getElementById("tiles");
+for (let i = 0; i < 18; i++) {
+	const d = document.createElement("div");
+	d.className = "t";
+	d.textContent = "tile " + i;
+	tiles.appendChild(d);
+}
+addEventListener("mousedown", (e) => {
+	const t = e.target.closest(".t");
+	if (t) t.classList.toggle("on");
+	document.getElementById("head").textContent = "clicks " + ++n;
+});
+</script></body></html>

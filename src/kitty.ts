@@ -167,7 +167,17 @@ export interface KittyImageHooks {
 	onSwitch?: () => void;
 	/** Timer for the delayed delete (tests inject a fake one). */
 	setTimer?: (fn: () => void, ms: number) => void;
+	/**
+	 * Dev diagnostics (RQ03): each kitty write, row id switch, and delayed retire decision. Metadata only, never frame
+	 * data; set only when the dev log is on.
+	 */
+	onEvent?: (event: KittyEvent) => void;
 }
+
+export type KittyEvent =
+	| { ev: "kitty"; op: "send" | "resend" | "delete"; imageId: number; bytes: number; cols?: number; rows?: number; writeMs?: number }
+	| { ev: "rows"; from: number | null; to: number; cols: number; rows: number }
+	| { ev: "retire"; imageId: number; action: "delete" | "skip"; reason: string };
 
 /**
  * Sends frames of one widget image, double-buffered (RQ04): Ghostty deletes an image and its placements when a new
@@ -207,8 +217,12 @@ export class KittyImage {
 		return this.current;
 	}
 
-	private upload(id: number, base64Png: string, cols: number, rows: number): void {
-		this.write(uploadCommand(id, base64Png, cols, rows, this.opts));
+	private upload(id: number, base64Png: string, cols: number, rows: number, op: "send" | "resend"): void {
+		const cmd = uploadCommand(id, base64Png, cols, rows, this.opts);
+		const t0 = this.hooks.onEvent ? performance.now() : 0;
+		this.write(cmd);
+		// Time spent in the (blocking) terminal write, for diagnosing slow uploads.
+		this.hooks.onEvent?.({ ev: "kitty", op, imageId: id, bytes: cmd.length, cols, rows, writeMs: Math.round(performance.now() - t0) });
 		this.uploads.set(id, (this.uploads.get(id) ?? 0) + 1);
 		this.current = id;
 		this.last = { data: base64Png, cols, rows };
@@ -226,7 +240,7 @@ export class KittyImage {
 		const l = this.last;
 		if (l && l.cols === cols && l.rows === rows && l.data === base64Png) return false;
 		const target = this.spare();
-		this.upload(target, base64Png, cols, rows);
+		this.upload(target, base64Png, cols, rows, "send");
 		if (target !== this.shown) this.hooks.onSwitch?.();
 		return true;
 	}
@@ -234,7 +248,7 @@ export class KittyImage {
 	/** Re-sends the last frame to the id the rows show (scaled send or recovery); false when nothing was sent yet. */
 	resend(cols: number, rows: number): boolean {
 		if (!this.last) return false;
-		this.upload(this.shown ?? this.current, this.last.data, cols, rows);
+		this.upload(this.shown ?? this.current, this.last.data, cols, rows, "resend");
 		return true;
 	}
 
@@ -253,6 +267,7 @@ export class KittyImage {
 		const id = this.current;
 		const prev = this.shown;
 		this.shown = id;
+		if (prev !== id) this.hooks.onEvent?.({ ev: "rows", from: prev ?? null, to: id, cols, rows });
 		if (prev !== undefined && prev !== id) this.retire(prev);
 		return placeholderLines(id, cols, rows);
 	}
@@ -262,15 +277,23 @@ export class KittyImage {
 		const uploads = this.uploads.get(id) ?? 0;
 		const timer = this.hooks.setTimer ?? ((fn: () => void, ms: number) => void setTimeout(fn, ms).unref?.());
 		timer(() => {
-			if (id === this.shown || id === this.current || (this.uploads.get(id) ?? 0) !== uploads) return;
-			this.write(deleteCommand(id, this.opts));
+			const skip = id === this.shown ? "shown" : id === this.current ? "current" : (this.uploads.get(id) ?? 0) !== uploads ? "uploaded again" : undefined;
+			this.hooks.onEvent?.({ ev: "retire", imageId: id, action: skip ? "skip" : "delete", reason: skip ?? "switched away" });
+			if (skip) return;
+			this.writeDelete(id);
 		}, RETIRE_DELAY_MS);
 	}
 
 	/** Deletes both buffers from terminal memory and forgets the still. */
 	delete(): void {
-		this.write(deleteCommand(this.ids[0], this.opts));
-		if (this.ids[1] !== this.ids[0]) this.write(deleteCommand(this.ids[1], this.opts));
+		this.writeDelete(this.ids[0]);
+		if (this.ids[1] !== this.ids[0]) this.writeDelete(this.ids[1]);
 		this.last = undefined;
+	}
+
+	private writeDelete(id: number): void {
+		const cmd = deleteCommand(id, this.opts);
+		this.write(cmd);
+		this.hooks.onEvent?.({ ev: "kitty", op: "delete", imageId: id, bytes: cmd.length });
 	}
 }

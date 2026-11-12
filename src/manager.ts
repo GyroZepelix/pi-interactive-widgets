@@ -14,7 +14,7 @@ import { BUTTON_BITS, WHEEL_PX } from "./component.js";
 import type { WidgetConfig } from "./config.js";
 import { type CellSize, cssCellSize, type Environment, tmuxCellSize, tmuxDisplay } from "./env.js";
 import { decodeInBrowser, fetchImage, type ImageFormat, type ImageSource, imageFit, prepareImage, readImageFile, sourceText } from "./image.js";
-import { type CellBox, imageIds, KittyImage, MAX_CELLS } from "./kitty.js";
+import { type CellBox, imageIds, KittyImage, type KittyEvent, MAX_CELLS, PLACEHOLDER } from "./kitty.js";
 import { flattenPng, limitPng, type Size } from "./png.js";
 import { type BlockedRequest, DEFAULT_PAGE_BG, type KeyInput, type MouseInput, SourceMissingError, type WheelInput, WidgetPage, type WidgetSource } from "./page.js";
 import { cdpModifiers, horizontalWheel, isPress, parseSgr, RawInputHook, type RawInputResult, type SgrMouse } from "./rawinput.js";
@@ -105,6 +105,26 @@ export function devLog(event: Record<string, unknown>): void {
 
 function devLogging(): string | undefined {
 	return process.env.PI_WIDGETS_DEV === "1" ? process.env.PI_WIDGETS_DEV_LOG || undefined : undefined;
+}
+
+const SCREEN_ID = new RegExp(`\\x1b\\[38;2;(\\d+);(\\d+);(\\d+)m${PLACEHOLDER}`, "gu");
+
+/**
+ * Dev diagnostics (RQ03): image ids in the placeholder rows of the screen Pi wrote last, with their row counts, read
+ * from the fullscreen renderer's private `previousScreen`; undefined when the field is unavailable.
+ */
+export function screenImageIds(tui: TUI | undefined): Record<number, number> | undefined {
+	const screen = (tui as { previousScreen?: unknown } | undefined)?.previousScreen;
+	if (!Array.isArray(screen)) return undefined;
+	const out: Record<number, number> = {};
+	for (const line of screen) {
+		if (typeof line !== "string" || !line.includes(PLACEHOLDER)) continue;
+		for (const m of line.matchAll(SCREEN_ID)) {
+			const id = (Number(m[1]) << 16) | (Number(m[2]) << 8) | Number(m[3]);
+			out[id] = (out[id] ?? 0) + 1;
+		}
+	}
+	return out;
 }
 
 /** Default and clamped widget size in cells (RQ02). */
@@ -436,8 +456,18 @@ export class WidgetManager {
 	}
 
 	/** Two fresh image ids (double buffering, RQ04); a new frame re-renders the rows to switch to its id. */
-	private newImage(): KittyImage {
-		return new KittyImage([imageIds.next(), imageIds.next()], { tmux: this.s.env.tmux }, this.s.write, { onSwitch: () => this.s.tui?.requestRender() });
+	private newImage(id: string): KittyImage {
+		const onEvent = devLogging() ? (e: KittyEvent) => this.devKitty(id, e) : undefined;
+		return new KittyImage([imageIds.next(), imageIds.next()], { tmux: this.s.env.tmux }, this.s.write, { onSwitch: () => this.s.tui?.requestRender(), ...(onEvent ? { onEvent } : {}) });
+	}
+
+	/**
+	 * Dev diagnostics (RQ03): logs a kitty event with the ids the last written screen shows. A row switch happens during
+	 * a render, so it is logged again after that render was written (`rows-written`) to show whether the rows arrived.
+	 */
+	private devKitty(id: string, e: KittyEvent): void {
+		devLog({ ...e, id, screen: screenImageIds(this.s.tui) ?? null });
+		if (e.ev === "rows") setImmediate(() => devLog({ ev: "rows-written", id, to: e.to, screen: screenImageIds(this.s.tui) ?? null }));
 	}
 
 	private get browserHost(): BrowserHost {
@@ -481,11 +511,11 @@ export class WidgetManager {
 		const dpr = this.s.config.dpr;
 		const css = cssCellSize(this.cellSize(), dpr);
 		const { cols, rows } = widgetSize(opts.cols, opts.rows, this.s.tui?.terminal.columns ?? process.stdout.columns ?? 104);
-		const image = this.newImage();
+		const id = randomBytes(6).toString("hex");
+		const image = this.newImage(id);
 		const cssWidth = Math.round(cols * css.width);
 		const cssHeight = Math.round(rows * css.height);
 		let widget: Widget | undefined;
-		const id = randomBytes(6).toString("hex");
 		const page = await this.openPage(id, opts.source, opts.title, cssWidth, cssHeight, () => widget);
 		const details: WidgetDetails = {
 			id,
@@ -531,7 +561,7 @@ export class WidgetManager {
 			const src = source ?? (details.path ? { path: details.path } : undefined);
 			devLog({ ev: "revive", id: details.id, resumed: true, source: src ? Object.keys(src)[0] : null });
 			if (!src) return Promise.resolve();
-			w = new Widget(details, undefined, this.newImage(), src);
+			w = new Widget(details, undefined, this.newImage(details.id), src);
 			this.widgets.set(w.id, w);
 		}
 		const widget = w;
@@ -670,6 +700,7 @@ export class WidgetManager {
 	pointer(w: Widget, kind: "hover" | "press" | "drag" | "wheel"): void {
 		if (w.closed) return;
 		w.lastUsed = ++useSeq;
+		if (kind === "press") devLog({ ev: "press", id: w.id, focused: w.focused, frozen: w.frozen, live: this.live === w });
 		// A first press also restores an image the terminal dropped (RQ13), even on a widget that is still live.
 		if (kind === "press" && !w.focused && !w.frozen) w.image.resend(w.display.cols, w.display.rows);
 		if (kind === "press" || this.live !== w || w.frozen) w.run("live", () => this.makeLive(w));
@@ -737,10 +768,10 @@ export class WidgetManager {
 	 * Called from a widget row's render with the cells it shows (RQ12): a changed size re-sends the still scaled to fit,
 	 * and later frames follow at that size.
 	 */
-	setDisplay(w: Widget, box: CellBox): void {
+	setDisplay(w: Widget, box: CellBox, width?: number): void {
 		if (sameBox(w.display, box)) return;
 		w.display = box;
-		devLog({ ev: "display", id: w.id, cols: box.cols, rows: box.rows, scale: box.scale });
+		devLog({ ev: "display", id: w.id, cols: box.cols, rows: box.rows, scale: box.scale, width: width ?? null });
 		setImmediate(() => w.image.resend(box.cols, box.rows));
 	}
 

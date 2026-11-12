@@ -8,6 +8,7 @@ import {
 	fitCells,
 	ImageIdAllocator,
 	KittyImage,
+	type KittyEvent,
 	MAX_CELLS,
 	RETIRE_DELAY_MS,
 	PLACEHOLDER,
@@ -260,6 +261,28 @@ describe("KittyImage double buffering (RQ04)", () => {
 		img.delete();
 		assert.deepEqual(ops(writes).slice(3), ["del 11", "del 22"]);
 		assert.equal(img.retained, false);
+	});
+});
+
+describe("KittyImage dev diagnostics (RQ03)", () => {
+	it("reports writes, row switches, and retire decisions without frame data", () => {
+		const events: KittyEvent[] = [];
+		const timers: (() => void)[] = [];
+		const img = new KittyImage([11, 22], { tmux: true }, () => {}, { setTimer: (fn) => void timers.push(fn), onEvent: (e) => events.push(e) });
+		img.send("AAAA", 2, 1);
+		img.lines(2, 1);
+		img.send("BBBB", 2, 1);
+		img.lines(2, 1);
+		img.resend(2, 1);
+		timers.splice(0).forEach((fn) => fn());
+		img.send("CCCC", 2, 1);
+		img.lines(2, 1);
+		timers.splice(0).forEach((fn) => fn());
+		const brief = events.map((e) => (e.ev === "kitty" ? `${e.op} ${e.imageId}` : e.ev === "rows" ? `rows ${e.from}>${e.to}` : `retire ${e.imageId} ${e.action} ${e.reason}`));
+		assert.deepEqual(brief, ["send 11", "rows null>11", "send 22", "rows 11>22", "resend 22", "retire 11 delete switched away", "delete 11", "send 11", "rows 22>11", "retire 22 delete switched away", "delete 22"]);
+		const write = events.find((e) => e.ev === "kitty" && e.op === "send");
+		assert.ok(write && write.ev === "kitty" && write.bytes > 0 && typeof write.writeMs === "number" && write.cols === 2);
+		assert.ok(!JSON.stringify(events).includes("AAAA"), "no frame data in events");
 	});
 });
 

@@ -192,7 +192,9 @@ describe("fullscreen session: input, focus, scrolling, bridge, tool", () => {
 		s.track();
 		const turn = await s.waitFor(() => s.turns().find((t) => t.messages.some((m) => m.role === "toolResult" && m.text.includes(`Widget ${idOf(w)} is shown inline`))), 15_000, "tool result turn");
 		const result = turn.messages.find((m) => m.role === "toolResult")?.text ?? "";
-		assert.match(result, /40x3 cells, CSS viewport 320x51 px/);
+		// The CSS viewport follows the terminal's cell size (Ghostty font size), so compute it from the logged cell.
+		const cell = w.cssCell as { width: number; height: number };
+		assert.ok(result.includes(`40x3 cells, CSS viewport ${Math.round(40 * cell.width)}x${Math.round(3 * cell.height)} px`), result);
 		assert.match(result, /Blocked during load: none\./);
 		assert.match(result, /JS errors during load: none\./);
 		await s.waitLocate(imageOf(w), 3);
@@ -214,6 +216,7 @@ describe("input fixes: horizontal wheel, click outside, single click (RQ01-RQ03;
 	const wheelAt = (code: number, x: number, y: number): void => s.type(sgr(code, x + 1, y + 1));
 	let a: DevEvent;
 	let b: DevEvent;
+	let c: DevEvent;
 
 	it("AC01: horizontal wheel over an unfocused widget never wakes, focuses, or presses it; vertical wheel scrolls the transcript", async () => {
 		assert.equal(s.events().find((e) => e.ev === "raw-input")?.hooked, true, "raw input hook installed");
@@ -306,21 +309,25 @@ describe("input fixes: horizontal wheel, click outside, single click (RQ01-RQ03;
 	});
 
 	it("AC03a: a single click on a frozen widget's button reaches the page once", async () => {
-		const id = idOf(a);
-		await s.waitFor(() => (s.events().filter((e) => e.ev === "frozen" && e.id === id).length >= 2 ? true : undefined), 3_000, "frozen");
-		const grid = await s.waitLocate(imageOf(a), 4);
+		// A fresh widget: the delivered widget-data message above can scroll widget A out of the 24-row split.
+		await s.command("/widget-dev tests/fixtures/e2e-click.html 60 4");
+		c = await s.waitEvent((e) => e.ev === "widget" && e.id !== idOf(a), 20_000, "fresh click widget");
+		const id = idOf(c);
+		s.track();
+		await s.waitEvent((e) => e.ev === "frozen" && e.id === id, 5_000, "idle freeze");
+		const grid = await s.waitLocate(imageOf(c), 4);
 		const clicks = pageClicks(id);
 		s.type(s.press(grid.col + 30, grid.row + 2));
 		await s.waitFor(() => (pageClicks(id) === clicks + 1 ? true : undefined), 5_000, "one click");
 		await sleep(500);
 		assert.equal(pageClicks(id), clicks + 1, "exactly once");
 		s.key("Escape");
-		await s.waitFor(() => (s.events().filter((e) => e.ev === "release" && e.id === id).length === 2 ? true : undefined), 3_000, "release");
+		await s.waitFor(() => (s.events().filter((e) => e.ev === "release" && e.id === id).length === 1 ? true : undefined), 3_000, "release");
 	});
 
 	it("AC02: a press on a second widget makes it live and focused and freezes the first; releasing it restores the editor", async () => {
 		// Two fresh widgets (the delivery above scrolled widget A out of view).
-		const known = new Set([idOf(a)]);
+		const known = new Set([idOf(a), idOf(c)]);
 		const next = async (): Promise<DevEvent> => {
 			await s.command("/widget-dev tests/fixtures/e2e-click.html 60 2");
 			const w = await s.waitEvent((e) => e.ev === "widget" && !known.has(idOf(e)), 20_000, "new widget");
@@ -352,6 +359,47 @@ describe("input fixes: horizontal wheel, click outside, single click (RQ01-RQ03;
 		assert.equal(sends(s, idOf(b)).length + sends(s, idOf(first)).length, before);
 		assert.equal(count("focus", idOf(first)), 1, "focus did not return to the first widget");
 		s.key("BSpace", "BSpace");
+	});
+});
+
+describe("drag (RQ02)", () => {
+	let s: PiSession;
+	before(async () => {
+		s = await PiSession.start();
+	});
+	after(async () => closeAndCheck(s));
+
+	it("RQ02: press, held-button motion, and release drag a range input, also past the grid while captured", async () => {
+		await s.command("/widget-dev tests/fixtures/e2e-range.html 60 3");
+		const w = await widgetEvent(s, /e2e-range/);
+		const id = idOf(w);
+		s.track();
+		const grid = await s.waitLocate(imageOf(w), 3);
+		const y = grid.row + 1;
+		const values = (): number[] => sends(s, id).map((e) => Number((e.data as { value?: number }).value));
+		// SGR: 0 press, 32 left-button motion, release with the lowercase final byte.
+		s.type(sgr(0, grid.col + 1, y + 1));
+		await s.waitEvent((e) => e.ev === "focus" && e.id === id, 5_000, "focus");
+		for (const dx of [5, 10, 15, 20, 25, 30]) {
+			s.type(sgr(32, grid.col + dx + 1, y + 1));
+			await sleep(60);
+		}
+		const mid = await s.waitFor(() => {
+			const v = values().at(-1);
+			return v !== undefined && v >= 35 && v <= 65 ? v : undefined;
+		}, 5_000, "slider value near the middle while dragging");
+		assert.ok(new Set(values()).size >= 3, `value followed the pointer: ${values().join(",")}`);
+		// Past the grid's right edge (Pi keeps the capture; the extension clamps to the page).
+		s.type(sgr(32, Math.min(grid.col + 70, 79) + 1, y + 1));
+		await s.waitFor(() => (values().at(-1) === 100 ? true : undefined), 5_000, "slider at the maximum past the grid");
+		s.type(sgr(0, Math.min(grid.col + 70, 79) + 1, y + 1, true));
+		await sleep(300);
+		const n = values().length;
+		s.type(s.press(grid.col + 1, y));
+		await s.waitFor(() => (values().length > n ? true : undefined), 5_000, "a click still sets the value");
+		assert.ok((values().at(-1) ?? 100) < mid, "click near the left edge lowers the value");
+		s.key("Escape");
+		await s.waitEvent((e) => e.ev === "release" && e.id === id, 5_000, "release");
 	});
 });
 

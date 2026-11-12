@@ -17,7 +17,8 @@ Durable current-state codebase knowledge. Read this file first when answering co
 
 ## Topics
 
-- [Terminal graphics under tmux](./terminal-graphics-tmux.md): Placeholder grid, passthrough, mouse-tracking, and tmux test-tooling constraints for widget rendering work.
+- [Terminal graphics under tmux](./terminal-graphics-tmux.md): Placeholder grid, passthrough (`allow-passthrough all`), mouse-tracking, CDP drag, and tmux test-tooling constraints for widget rendering work.
+- [Research: CDP drag input and tmux output discards](./research/drag-input-and-tmux-output-discards.md): CDP `mouseMoved` needs the held button to drag; tmux output discards (counted in `client_discarded`, not the blank-image cause); Pi 1.5.2 under tmux.
 - [Observations](./observations.md): Tentative findings for Dream and memory maintenance; not normal task context.
 
 ## Architecture

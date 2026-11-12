@@ -21,6 +21,9 @@ describe("guide pointer and check_widget (dev timers: idle 4 s, close 3 s)", () 
 		await sleep(300);
 		return toolResult(turn, tool);
 	}
+	/** Expected check_widget PNG: long edge 1000 px, aspect of the widget's CSS viewport (cell size varies by font). */
+	let shot = { width: 0, height: 0 };
+	const shotText = (): string => `${shot.width}x${shot.height} px PNG`;
 	const checkEvent = (n: number): Promise<DevEvent> => s.waitFor(() => s.events().filter((e) => e.ev === "check" && e.id === id)[n], 5_000, `check event ${n}`);
 
 	before(async () => {
@@ -37,18 +40,20 @@ describe("guide pointer and check_widget (dev timers: idle 4 s, close 3 s)", () 
 		s.track();
 		const w = await s.waitEvent((e) => e.ev === "widget" && e.title === "pointer probe", 5_000, "widget");
 		id = String(w.id);
+		const css = { width: Number(w.cssWidth), height: Number(w.cssHeight) };
+		shot = css.width >= css.height ? { width: 1000, height: Math.round((1000 * css.height) / css.width) } : { width: Math.round((1000 * css.width) / css.height), height: 1000 };
 		assert.match(result, new RegExp(`Widget ${id} is shown inline`));
 		assert.equal(result.split("\n").at(-1), POINTER, "the pointer is the last line");
 
 		// AC04 live: a fresh capture while the widget is still live.
 		const live = await call(`e2e-call check_widget ${JSON.stringify({ id })}`, "check_widget");
 		assert.match(live, new RegExp(`^Widget ${id} \\(pointer probe\\): live`));
-		assert.match(live, /Image: fresh capture, 1000x425 px PNG\./);
+		assert.ok(live.includes(`Image: fresh capture, ${shotText()}.`), live);
 		assert.match(live, /JS errors since the last load: none\./);
 		assert.match(live, /Overflowing or clipped elements: none\./);
 		assert.match(live, /\[image\]/);
 		const e0 = await checkEvent(0);
-		assert.deepEqual([e0.state, e0.source, e0.width, e0.height], ["live", "fresh capture", 1000, 425]);
+		assert.deepEqual([e0.state, e0.source, e0.width, e0.height], ["live", "fresh capture", shot.width, shot.height]);
 
 		await call(`e2e-call read ${JSON.stringify({ path: "guide/widgets.md" })}`, "read");
 		await s.waitEvent((e) => e.ev === "guide-read", 5_000, "guide-read");
@@ -61,9 +66,9 @@ describe("guide pointer and check_widget (dev timers: idle 4 s, close 3 s)", () 
 		await s.waitEvent((e) => e.ev === "frozen" && e.id === id, 10_000, "first widget frozen");
 		const frozen = await call(`e2e-call check_widget ${JSON.stringify({ id })}`, "check_widget");
 		assert.match(frozen, /: frozen \(paused on its last frame/);
-		assert.match(frozen, /Image: fresh capture, 1000x425 px PNG\./);
+		assert.ok(frozen.includes(`Image: fresh capture, ${shotText()}.`), frozen);
 		const e1 = await checkEvent(1);
-		assert.deepEqual([e1.state, e1.source, e1.width, e1.height], ["frozen", "fresh capture", 1000, 425]);
+		assert.deepEqual([e1.state, e1.source, e1.width, e1.height], ["frozen", "fresh capture", shot.width, shot.height]);
 		await sleep(300);
 		const mine = (ev: string): DevEvent[] => s.events().filter((e) => e.ev === ev && e.id === id);
 		assert.deepEqual([mine("live").length, mine("focus").length], [0, 0], "never woken or focused");
@@ -71,11 +76,11 @@ describe("guide pointer and check_widget (dev timers: idle 4 s, close 3 s)", () 
 		await s.waitEvent((e) => e.ev === "closed" && e.id === id, 10_000, "first widget closed");
 		const closed = await call(`e2e-call check_widget ${JSON.stringify({ id })}`, "check_widget");
 		assert.match(closed, /: closed \(no open page/);
-		assert.match(closed, /Image: last still, 1000x425 px PNG\./);
+		assert.ok(closed.includes(`Image: last still, ${shotText()}.`), closed);
 		assert.match(closed, /closed: not inspected; showing the last still/);
 		assert.match(closed, /\[image\]/);
 		const e2 = await checkEvent(2);
-		assert.deepEqual([e2.state, e2.source, e2.width, e2.height], ["closed", "last still", 1000, 425]);
+		assert.deepEqual([e2.state, e2.source, e2.width, e2.height], ["closed", "last still", shot.width, shot.height]);
 		await sleep(300);
 		assert.deepEqual([mine("revive").length, mine("revived").length, mine("live").length], [0, 0, 0], "no revive");
 

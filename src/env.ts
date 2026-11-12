@@ -40,6 +40,24 @@ export function detectEnvironment(env: NodeJS.ProcessEnv = process.env, query: T
 }
 
 /**
+ * Notice when tmux would drop widget image uploads (PD04): with `allow-passthrough on`, tmux 3.8 discards passthrough
+ * while a redraw of the pane is pending, and large uploads keep that redraw pending, so an image can go blank after a
+ * click until it is re-sent. `all` forwards passthrough regardless. Read-only: the extension never changes tmux options.
+ * Undefined outside a supported tmux session, when the value is not `on`, or when tmux cannot be queried.
+ */
+export function passthroughNotice(env: Environment, query: TmuxQuery): string | undefined {
+	if (!env.tmux || !env.supported) return undefined;
+	let value: string;
+	try {
+		value = query("#{allow-passthrough}");
+	} catch {
+		return undefined;
+	}
+	if (value.trim().toLowerCase() !== "on") return undefined;
+	return 'tmux allow-passthrough is "on", so widget images can go blank after clicks (Escape and a click restore them). Add "set -g allow-passthrough all" to tmux.conf to fix it; see the README.';
+}
+
+/**
  * Pi's own multiplexer condition (pi-tui 1.4.0 `tui-alt-screen.js`): under tmux, Zellij, or screen Pi enables only
  * button-motion mouse tracking, so hover moves never arrive. Elsewhere it enables all-motion tracking (PD09).
  */

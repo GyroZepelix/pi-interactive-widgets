@@ -126,7 +126,7 @@ export class WidgetComponent implements Component, Focusable {
 		}
 		const box = fitCells(d.cols, d.rows, maxGridCols(width));
 		this.box = box;
-		this.manager.setDisplay(w, box);
+		this.manager.setDisplay(w, box, width);
 		// The rows carry the id of the newest upload; switching ids is the double-buffer swap (RQ04).
 		return [...head, ...w.image.lines(box.cols, box.rows)];
 	}

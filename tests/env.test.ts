@@ -1,7 +1,7 @@
 // Environment detection unit tests (RQ14); tmux is replaced by a fake query.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssCellSize, detectEnvironment, pointerMotionReported, type TmuxQuery, tmuxCellSize } from "../src/env.js";
+import { cssCellSize, detectEnvironment, type Environment, passthroughNotice, pointerMotionReported, type TmuxQuery, tmuxCellSize } from "../src/env.js";
 
 const fake =
 	(answers: Record<string, string>): TmuxQuery =>
@@ -73,5 +73,27 @@ describe("pointerMotionReported (Pi's multiplexer condition, PD09)", () => {
 	it("is true in a plain terminal", () => {
 		assert.equal(pointerMotionReported({ TERM: "xterm-ghostty", TERM_PROGRAM: "ghostty" }), true);
 		assert.equal(pointerMotionReported({}), true);
+	});
+});
+
+describe("passthroughNotice (PD04)", () => {
+	const ghostty: Environment = { kind: "tmux-ghostty", supported: true, tmux: true, clientTerm: "xterm-ghostty" };
+	const q = (value: string): TmuxQuery => fake({ "#{allow-passthrough}": value });
+
+	it("warns under supported tmux when allow-passthrough is on, naming the tmux.conf fix", () => {
+		const n = passthroughNotice(ghostty, q("on"));
+		assert.match(n ?? "", /allow-passthrough is "on".*go blank.*set -g allow-passthrough all/);
+		assert.ok(passthroughNotice({ ...ghostty, kind: "tmux-kitty" }, q("on\n")));
+	});
+
+	it("stays silent for all, off, an unknown value, or a failing query", () => {
+		for (const v of ["all", "off", ""]) assert.equal(passthroughNotice(ghostty, q(v)), undefined, v);
+		assert.equal(passthroughNotice(ghostty, failing), undefined);
+	});
+
+	it("never queries tmux outside a supported tmux session", () => {
+		assert.equal(passthroughNotice({ kind: "ghostty", supported: true, tmux: false }, failing), undefined);
+		assert.equal(passthroughNotice({ kind: "tmux-other", supported: false, tmux: true }, () => assert.fail("queried")), undefined);
+		assert.equal(passthroughNotice({ kind: "ghostty", supported: true, tmux: false }, () => assert.fail("queried")), undefined);
 	});
 });

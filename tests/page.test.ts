@@ -4,7 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { BrowserHost, BrowserMissingError, findChromeHeadlessShell } from "../src/browser.js";
-import { baseCss, wrapDocument } from "../src/page.js";
+import { baseCss, buttonFromMask, wrapDocument } from "../src/page.js";
+
+describe("buttonFromMask", () => {
+	it("RQ01: a move names the held button (left, then middle, then right) and hovers stay none", () => {
+		assert.equal(buttonFromMask(undefined), "none");
+		assert.equal(buttonFromMask(0), "none");
+		assert.equal(buttonFromMask(1), "left");
+		assert.equal(buttonFromMask(2), "right");
+		assert.equal(buttonFromMask(4), "middle");
+		assert.equal(buttonFromMask(1 | 2 | 4), "left");
+		assert.equal(buttonFromMask(2 | 4), "middle");
+	});
+});
 
 describe("wrapDocument", () => {
 	it("wraps fragments in the shell", () => {

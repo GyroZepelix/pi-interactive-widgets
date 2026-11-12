@@ -71,6 +71,19 @@ export interface WheelInput {
 
 export type KeyInput = Protocol.Input.DispatchKeyEventRequest;
 
+/**
+ * CDP button for a move without an explicit button: the held button from the `buttons` mask (left, then middle, then
+ * right), or `none` for a hover. Chromium drags form controls (range inputs, selections) only when a move names the
+ * held button; `buttons` alone is not enough.
+ */
+export function buttonFromMask(buttons: number | undefined): "none" | "left" | "middle" | "right" {
+	const b = buttons ?? 0;
+	if (b & 1) return "left";
+	if (b & 4) return "middle";
+	if (b & 2) return "right";
+	return "none";
+}
+
 export class SourceMissingError extends Error {
 	constructor(path: string) {
 		super(`source file missing: ${path}`);
@@ -575,7 +588,7 @@ export class WidgetPage {
 			type: ev.type,
 			x: ev.x,
 			y: ev.y,
-			button: ev.button ?? (ev.type === "mouseMoved" ? "none" : "left"),
+			button: ev.button ?? (ev.type === "mouseMoved" ? buttonFromMask(ev.buttons) : "left"),
 			buttons: ev.buttons ?? (ev.type === "mousePressed" ? 1 : 0),
 			clickCount: ev.clickCount ?? (ev.type === "mouseMoved" ? 0 : 1),
 			modifiers: ev.modifiers ?? 0,
