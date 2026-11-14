@@ -6,6 +6,7 @@ import { access, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import type { CDPSession, Page, Protocol } from "puppeteer-core";
 import type { BrowserHost, HostedPage } from "./browser.js";
+import type { CellSize } from "./env.js";
 import { buildCsp, checkRequest, DEFAULT_POLICY, listsLocalHost, type NetworkPolicy } from "./policy.js";
 
 export type WidgetSource = { html: string } | { path: string };
@@ -43,6 +44,11 @@ export interface WidgetPageOptions extends WidgetHandlers {
 	 * paints nothing. Otherwise the page is painted `--pi-bg` or the dark default `#1e1e2e`.
 	 */
 	transparent?: boolean | undefined;
+	/**
+	 * CSS px per terminal cell. Terminal clicks land on cell centers, so when set, native controls get a one-cell
+	 * `min-height` in the base layer and always cover a center. Omitted: no such rule.
+	 */
+	cssCell?: CellSize | undefined;
 	/** Frame rate cap enforced by delaying screencast acks. */
 	maxFps?: number | undefined;
 	/** How long `open` waits for the first frame. */
@@ -144,8 +150,11 @@ const THEME_VALUE = /^[^;{}<>\\]*$/;
 /** Page color behind transparent frames when an image must be opaque (`check_widget`), and the opaque default. */
 export const DEFAULT_PAGE_BG = "#1e1e2e";
 
-/** Base CSS injected at document start; layered so any unlayered author CSS wins. */
-export function baseCss(theme: Readonly<Record<string, string>> = {}, transparent = false): string {
+/**
+ * Base CSS injected at document start; layered so any unlayered author CSS wins. With `cssCell`, native controls are
+ * at least one cell tall, so a terminal click (always at a cell center) can reach them wherever the layout puts them.
+ */
+export function baseCss(theme: Readonly<Record<string, string>> = {}, transparent = false, cssCell?: CellSize): string {
 	const vars = Object.entries(theme)
 		.filter(([k, v]) => THEME_NAME.test(k) && THEME_VALUE.test(v))
 		.map(([k, v]) => `${k}: ${v};`)
@@ -158,6 +167,7 @@ export function baseCss(theme: Readonly<Record<string, string>> = {}, transparen
 		`body { background: var(--pi-bg, ${transparent ? "transparent" : DEFAULT_PAGE_BG}); color: var(--pi-fg, #cdd6f4); font: 14px/1.4 system-ui, sans-serif; }`,
 		"select { appearance: base-select; }",
 		"::picker(select) { appearance: base-select; }",
+		...(cssCell ? [`input:not([type=hidden]), button, select { min-height: ${Math.ceil(cssCell.height)}px; }`] : []),
 		"}",
 	].join("\n");
 }
@@ -334,7 +344,7 @@ export class WidgetPage {
 		await cdp.send("Runtime.addBinding", { name: BINDING });
 		// Chromium paints an opaque white base under the page unless the default background is overridden (RQ05).
 		if (this.opts.transparent) await cdp.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
-		await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: injectionScript(baseCss(this.opts.theme, this.opts.transparent)) });
+		await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: injectionScript(baseCss(this.opts.theme, this.opts.transparent, this.opts.cssCell)) });
 		await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
 		const { windowId } = await cdp.send("Browser.getWindowForTarget");
 		this.windowId = windowId;

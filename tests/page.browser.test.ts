@@ -311,6 +311,70 @@ describe("screencast, freeze, and input", () => {
 		await closeAll();
 	});
 
+	describe("cell-center clicks reach native controls (AC02-AC04)", () => {
+		// 100x32 cells of 9x20 CSS px: terminal clicks land only at cell centers y = 10, 30, 50, ...
+		const CELL = { width: 9, height: 20 };
+		const cell = { cssWidth: 900, cssHeight: 640 };
+		const centerY = (gy: number): number => (gy + 0.5) * CELL.height;
+		const centerX = (gx: number): number => (gx + 0.5) * CELL.width;
+		// The failing correlation geometry: a default 16 px range input whose top sits at y=13, between centers 10 and 30.
+		const slider = `<input id=r type=range min=0 max=100 value=0 style="position:absolute;left:20px;top:13px;width:360px;margin:0">`;
+		const box = (w: WidgetPage, id: string) =>
+			evaluate<{ x: number; y: number; w: number; h: number }>(w, `(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+		const centersIn = (b: { y: number; h: number }): number[] => Array.from({ length: 32 }, (_, gy) => centerY(gy)).filter((c) => c >= b.y && c < b.y + b.h);
+		const value = async (w: WidgetPage): Promise<number> => Number(await evaluate<string>(w, `document.getElementById("r").value`));
+		const drag = async (w: WidgetPage, y: number): Promise<void> => {
+			await w.mouse({ type: "mousePressed", x: centerX(3), y, buttons: 1 });
+			for (const gx of [10, 20, 30]) await w.mouse({ type: "mouseMoved", x: centerX(gx), y, buttons: 1 });
+			await w.mouse({ type: "mouseReleased", x: centerX(30), y, buttons: 0 });
+		};
+
+		it("AC02: without a CSS cell the 16 px slider sits between centers and cell-center drags miss it", async () => {
+			const w = await widget({ ...cell, source: { html: slider } });
+			const b = await box(w, "r");
+			assert.deepEqual([b.y, b.h], [13, 16], "documents the original failing geometry");
+			assert.deepEqual(centersIn(b), []);
+			for (const y of [centerY(0), centerY(1)]) await drag(w, y);
+			assert.equal(await value(w), 0);
+			await closeAll();
+		});
+
+		it("AC02: with a CSS cell the slider is one cell tall, covers a center, and a cell-center drag moves it", async () => {
+			const w = await widget({ ...cell, cssCell: CELL, source: { html: slider } });
+			const b = await box(w, "r");
+			assert.deepEqual([b.y, b.h], [13, 20]);
+			const centers = centersIn(b);
+			assert.deepEqual(centers, [30]);
+			await drag(w, centers[0] as number);
+			assert.ok((await value(w)) > 0, `value changed, got ${await value(w)}`);
+			await closeAll();
+		});
+
+		it("AC03: a checkbox at an arbitrary offset toggles on a cell-center click", async () => {
+			const w = await widget({ ...cell, cssCell: CELL, source: { html: `<input id=c type=checkbox style="position:absolute;left:41px;top:57px;margin:0">` } });
+			const b = await box(w, "c");
+			assert.ok(b.h >= CELL.height, `checkbox is at least one cell tall, got ${b.h}`);
+			const [y] = centersIn(b);
+			assert.ok(y !== undefined, "checkbox covers a cell center");
+			const gx = Math.floor((b.x + b.w / 2) / CELL.width);
+			await w.click(centerX(gx), y);
+			assert.equal(await evaluate(w, `document.getElementById("c").checked`), true);
+			await closeAll();
+		});
+
+		it("AC04: author min-height wins over the base rule; author height alone does not shrink below one cell", async () => {
+			const w = await widget({
+				...cell,
+				cssCell: CELL,
+				source: { html: `<style>#a { min-height: 40px } #s { min-height: 4px; height: 12px } #t { height: 14px }</style><button id=a>a</button><input id=s><input id=t>` },
+			});
+			assert.equal((await box(w, "a")).h, 40);
+			assert.equal((await box(w, "s")).h, 12);
+			assert.equal((await box(w, "t")).h, 20);
+			await closeAll();
+		});
+	});
+
 	it("delivers wheel, typed text, and special keys", async () => {
 		const w = await widget({ source: { path: join(FIXTURES, "static.html") } });
 		await evaluate(w, `document.body.insertAdjacentHTML("beforeend", "<div id=wheel style='position:absolute;left:0;top:0;width:300px;height:100px;overflow:auto'><div style='height:1000px'></div></div>")`);

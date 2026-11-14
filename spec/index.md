@@ -23,6 +23,7 @@ Repository-local planning and execution artifacts.
 | [Widget input fixes and rendering polish](./archive/261029-1840-widget-input-fixes-and-rendering-polish/plan.md) | work-item | completed | 2026-10-29 |
 | [Show image tool](./archive/261029-2034-show-image-tool/plan.md) | work-item | completed | 2026-10-29 |
 | [Widget drag input and blank-image-after-click fix](./archive/261112-2105-widget-drag-input-and-blank-image-after-click-fix/plan.md) | work-item | completed | 2026-11-12 |
+| [Cell-tall native controls so cell-center clicks hit them](./archive/261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them/plan.md) | work-item | completed | 2026-11-14 |
 <!-- spec-items:archive:end -->
 
 ## Templates

@@ -88,3 +88,19 @@ Use this shape for new entries:
 - Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "Re-check the client's current window immediately before every harness run" - L6: verbatim split of the dedicated-window bullet; the re-check rule got its own bullet.
 - Verification: metrics gate against the pre-apply snapshot, re-read of changed files, relative-link resolution, and `git diff --check`; results and before and after metrics are in the run report.
 - Notes: L1 (visible-pane rule merge) not approved. Rejected: C1 title rewording, C2 and C3 rewordings (dropped conditions), C4 (made a Ghostty path look repo-local). M1 stays over 1200 words; moving Test tooling to its own page is a candidate for a later run.
+
+## [2026-11-14] research | Cell-center clicks miss controls shorter than one cell
+
+- Trigger: diagnosis of unclickable sliders in a learn-radio widget, then Quick Plan for `261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them`.
+- Inputs: `src/component.ts` (`cellToCss`), `src/page.ts` (`baseCss`), learn-radio session log 2026-11-12 (widget HTML for `correlation` and `antenna-resonance`), throwaway `WidgetPage` probes at commit `d24679a`.
+- Wiki pages changed: `wiki/research/cell-center-click-targets.md`, `wiki/index.md`.
+- Verification: probe results reproduced the failing and working geometry. A layered `min-height` probe confirmed the planned fix direction.
+- Notes: the fix is planned, not implemented. Current-state pages are unchanged until it lands.
+
+## [2026-11-14] dream | Gamemaster checkpoint: cell-tall native controls (direct)
+
+- Trigger: `/dream` run after Gamemaster checkpoint: 261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them/direct.
+- Inputs: current conversation, `src/page.ts`, `src/manager.ts`, `tests/page.browser.test.ts`, `guide/widgets.md`, archived plan, verification, and outcome for `261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them`.
+- Wiki pages changed: `wiki/research/cell-center-click-targets.md` (new Current behavior bullet: the shipped one-cell floor for native controls). The run's episode is discoverable through `wiki/dreams/episodes.jsonl`.
+- Verification: re-read changed files, ran the metrics gate against the pre-write snapshot, ran memory safety scan.
+- Notes: the fix planned in the previous entry has landed. `wiki/terminal-graphics-tmux.md` is over 1200 words, so no input bullet or pointer was added there; the research page is already indexed. Admission is a one-session exception (observed stable contract), review pending.

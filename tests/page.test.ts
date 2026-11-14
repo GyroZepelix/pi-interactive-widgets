@@ -40,6 +40,14 @@ describe("baseCss", () => {
 		assert.match(baseCss({}, true), /body \{ background: var\(--pi-bg, transparent\);/);
 		assert.match(baseCss({}), /body \{ background: var\(--pi-bg, #1e1e2e\);/);
 	});
+	it("AC01: with a CSS cell, native controls get a one-cell min-height inside the base layer", () => {
+		const rule = /input:not\(\[type=hidden\]\), button, select \{ min-height: (\d+)px; \}\n\}$/;
+		assert.equal(baseCss({}, false, { width: 9, height: 20 }).match(rule)?.[1], "20");
+		assert.equal(baseCss({}, false, { width: 8, height: 18.5 }).match(rule)?.[1], "19", "fractional heights round up");
+		assert.match(baseCss({}, false, { width: 9, height: 20 }), /^@layer pi-base \{/);
+		assert.doesNotMatch(baseCss({}), /min-height/);
+		assert.doesNotMatch(baseCss({}, true), /min-height/);
+	});
 });
 
 describe("findChromeHeadlessShell", () => {

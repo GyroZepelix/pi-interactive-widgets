@@ -52,6 +52,7 @@ Not for approvals or choosing among options. Never for forms, code, commands, er
 ## Input
 
 - Input is cell-precise (about 8x17 CSS px per cell), so make click targets at least about 24 px in both directions.
+- Clicks and drags land on cell centers only (with 17 px cells: y = 8.5, 25.5, 42.5, ...). A target shorter than one cell can sit between two centers and never receive a click. The extension keeps native controls (`input`, `button`, `select`) at least one cell tall automatically; give custom click targets (canvas regions, styled divs, links) at least one cell of height too. When the terminal is narrower than the widget, the widget is shown scaled down and centers are farther apart than one cell, so a one-cell target can still miss; give important targets extra height.
 - Make the visual elements themselves clickable where it helps: click a variant to highlight or enlarge it, click a diagram to step it, click a chart point to show its value. One click is enough, even on a paused widget; decisions still go to text or `ask_user_question`, not to buttons in the widget.
 - Use click-triggered UI instead of hover. Under tmux the page sees pointer moves only while a button is held, so `:hover` styles and hover tooltips do not track the pointer. Use click-to-open menus, tooltips, and details.
 - In-page `<select>` works. Avoid native pickers (`input type=date`, `time`, `color`, `month`, `week`); build custom controls.

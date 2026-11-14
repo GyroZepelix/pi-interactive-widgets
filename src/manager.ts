@@ -475,8 +475,11 @@ export class WidgetManager {
 		return this.host;
 	}
 
-	/** Opens a page for a widget; frames go to its image at its current display size. `id` labels dev-log events. */
-	private async openPage(id: string, source: WidgetSource, title: string, cssWidth: number, cssHeight: number, target: () => Widget | undefined): Promise<WidgetPage> {
+	/**
+	 * Opens a page for a widget; frames go to its image at its current display size. `id` labels dev-log events.
+	 * `cssCell` keeps native controls one cell tall so cell-center clicks reach them.
+	 */
+	private async openPage(id: string, source: WidgetSource, title: string, cssWidth: number, cssHeight: number, cssCell: CellSize | undefined, target: () => Widget | undefined): Promise<WidgetPage> {
 		const host = this.browserHost;
 		await this.evict();
 		return WidgetPage.open(host, {
@@ -484,6 +487,7 @@ export class WidgetManager {
 			title,
 			cssWidth,
 			cssHeight,
+			cssCell,
 			policy: this.s.config.network,
 			theme: themeVars(this.s.ctx?.ui.theme),
 			// Blend into the terminal (RQ05) unless Pi's theme is light: the page keeps a dark scheme with light text.
@@ -516,7 +520,7 @@ export class WidgetManager {
 		const cssWidth = Math.round(cols * css.width);
 		const cssHeight = Math.round(rows * css.height);
 		let widget: Widget | undefined;
-		const page = await this.openPage(id, opts.source, opts.title, cssWidth, cssHeight, () => widget);
+		const page = await this.openPage(id, opts.source, opts.title, cssWidth, cssHeight, css, () => widget);
 		const details: WidgetDetails = {
 			id,
 			imageId: image.ids[0],
@@ -580,7 +584,7 @@ export class WidgetManager {
 		w.image.resend(w.display.cols, w.display.rows);
 		let page: WidgetPage;
 		try {
-			page = await this.openPage(w.id, w.source, w.details.title, w.details.cssWidth, w.details.cssHeight, () => w);
+			page = await this.openPage(w.id, w.source, w.details.title, w.details.cssWidth, w.details.cssHeight, w.details.cssCell, () => w);
 		} catch (err) {
 			const missing = err instanceof SourceMissingError;
 			w.problem = missing ? err.message : `revive failed: ${err instanceof Error ? err.message : String(err)}`;
