@@ -27,3 +27,10 @@ Outcome: retained learning
 - **Expected future benefit:** Agents changing input mapping, base CSS, or widget guidance know native controls are already covered and that custom targets and pages opened without `cssCell` are not, so they neither duplicate the fix nor assume it covers canvas regions.
 - **Why this tier:** Stable source contract limited to widget input and base CSS; the research page is the indexed home for this topic, and `wiki/terminal-graphics-tmux.md` is over its word limit.
 - **Review status:** review pending
+
+## Gamemaster review reconciliation: 261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them
+
+Date: 2026-11-14
+
+Review results:
+- `direct` "Shipped one-cell height floor for native controls" - kept - flash-reviewer and alt-reviewer both kept it (criterion none): the stable contract matches `src/page.ts` and the AC04 browser test, and the probe sentence does not duplicate it.
