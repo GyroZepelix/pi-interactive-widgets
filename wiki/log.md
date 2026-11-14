@@ -74,3 +74,17 @@ Use this shape for new entries:
 - Wiki pages changed: `wiki/observations.md` (four new observations under "E2E and user-assisted checks" and "Widget image diagnostics"). The run's episode is discoverable through `wiki/dreams/episodes.jsonl`.
 - Verification: re-read changed files, ran the metrics gate against the pre-write snapshot, ran memory safety scan, `git diff --check`.
 - Notes: `wiki/terminal-graphics-tmux.md` is over the page word limit, so new findings went to observations; the AC03a scroll-out is already covered by the `locate` bullet and was not stored again.
+
+## [2026-11-12] lint | Terminal graphics page corrections and splits
+
+- Trigger: `/skill:wiki-lint` run with user-approved proposals L2, L3, L4, L5, L6.
+- Inputs: wiki-lint report of this run, metrics summary before applying, `README.md` (passthrough section), `spec/archive/261112-2105-widget-drag-input-and-blank-image-after-click-fix/verification.md`, installed pi-tui 1.5.2 `dist/tui-alt-screen.js` and `dist/terminal-image.js`, `package.json`.
+- Wiki pages changed: `wiki/terminal-graphics-tmux.md`.
+- Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "Image data sent while the pane's window is hidden is dropped" - L2: qualified with `allow-passthrough on` and the untested `all` behavior, matching README and archived verification.
+- Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "Pi 1.4.0 also disables its own image output" - L3: the behavior is unchanged in Pi 1.5.2, now the repository's devDependency.
+- Disposition: MOVE `wiki/terminal-graphics-tmux.md` "Pi 1.4.0 enables only button-motion mouse tracking" - L3 and L4: moved to the renamed Mouse tracking and widget input section and labeled Pi 1.4.0 and 1.5.2.
+- Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "`all` (`TTY_CTX_INVISIBLE_PANES`) bypasses both checks" - L5: verbatim split of the passthrough bullet into mechanism and configuration rule.
+- Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "With `-e`, tmux emits a color only where it changes" - L6: verbatim split of the capture bullet; `locate` sentences got their own bullet.
+- Disposition: SUPERSEDE `wiki/terminal-graphics-tmux.md` "Re-check the client's current window immediately before every harness run" - L6: verbatim split of the dedicated-window bullet; the re-check rule got its own bullet.
+- Verification: metrics gate against the pre-apply snapshot, re-read of changed files, relative-link resolution, and `git diff --check`; results and before and after metrics are in the run report.
+- Notes: L1 (visible-pane rule merge) not approved. Rejected: C1 title rewording, C2 and C3 rewordings (dropped conditions), C4 (made a Ghostty path look repo-local). M1 stays over 1200 words; moving Test tooling to its own page is a candidate for a later run.
