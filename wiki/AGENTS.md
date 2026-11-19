@@ -40,6 +40,20 @@ Do not store:
 
 Prefer updating existing pages over creating duplicates.
 
+## Structure
+
+Target shape for wiki pages and routes. It guides new pages and routes; existing wikis move toward it only through approved maintenance, such as a Wiki Lint run, not as a side effect of other work.
+
+- `wiki/index.md` is the single always-loaded router. It holds routes only: no content paragraphs and no `TBD` placeholder sections. Do not add `MEMORY.md` pointer files.
+- Each route line names its target, states its scope, and gives a trigger-style load condition: "Before or when <action> on <concrete things>, read X". Avoid vague or topic-only triggers such as "Notes" or "See also".
+- A page's role, not its folder, decides routing. Route every guidance page (rules, runbooks, reference, explanation) from `wiki/index.md` in one hop, wherever it lives. Each collection gets one line pointing at its hub; its entities are routed only from the hub.
+- Core pages (`overview.md`, `architecture.md`, `map.md`) live at the wiki root. Development practice (setup, verification, change workflow, gotchas) goes in `conventions/`. Do not create single-page folders.
+- Folders only organize. `conventions/` is the default guidance folder for rules, workflows, runbooks, and gotchas about working in the repository. Topic-named guidance folders and nested topic subfolders are allowed; type-named folders such as `workflows/` are not. A guidance folder never contains an `index.md` at any depth.
+- A collection is a folder of same-kind entities, wherever it sits, including inside a guidance folder, with its hub at `<collection>/index.md`. The hub's first lines declare `Entity path: <pattern>`, derived from the entity id, and the hub links every entity file. No identity frontmatter is required.
+- Tool-owned layouts keep their owner's layout: `stories/`, `teachings/`, `dreams/`, and `raw/`.
+- Split an over-long page by moving whole `##` sections, without rewording, into leaves with descriptive names placed by content type: rule and runbook leaves may go under `conventions/`, other leaves into a folder named after the page, never as siblings at the wiki root. Route each leaf from `wiki/index.md` with a trigger. Keep the original path only as a short "Always" page for topic-wide must-follow rules or a short routing page for orientation no leaf takes; otherwise remove it without a redirect stub.
+- With approval, Wiki Lint may move or rename guidance pages and folders to fit this structure; it rewrites links on pages it may edit and never leaves redirect stubs.
+
 ## Ingest and update path
 
 Use this path when processing new sources, changed code, specs, verification, outcomes, or durable findings:
@@ -47,7 +61,7 @@ Use this path when processing new sources, changed code, specs, verification, ou
 1. Identify the input: source paths, raw files, URLs, specs, verification, outcomes, commits, or git diff range.
 2. Read the smallest set of relevant files.
 3. Update affected wiki pages only.
-4. Update `wiki/index.md` when pages are added, moved, removed, stale, or in need of review.
+4. Update `wiki/index.md` when guidance pages or collection hubs are added, moved, removed, stale, or in need of review. Route a new collection entity, such as a `wiki/research/` page, from its hub (`<collection>/index.md`), not from `wiki/index.md`; when the collection has no hub yet, route the entity from `wiki/index.md` and leave the hub addition to Wiki Lint.
 5. Append a `wiki/log.md` entry only when durable wiki knowledge changes or an ingest, query, or lint result is filed into the wiki.
 6. Update `wiki/state.md` only when checkpoint state, lint state, processed-input state, or dedupe/resume state changes.
 7. Advance any checkpoint only after affected wiki pages and required maintenance state are updated.

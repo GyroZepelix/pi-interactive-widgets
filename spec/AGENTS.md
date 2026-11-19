@@ -1,6 +1,6 @@
 # Spec Instructions
 
-Protocol version: 2.3.1
+Protocol version: 2.5.0
 
 ## Purpose
 
