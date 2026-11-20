@@ -24,6 +24,7 @@ Repository-local planning and execution artifacts.
 | [Show image tool](./archive/261029-2034-show-image-tool/plan.md) | work-item | completed | 2026-10-29 |
 | [Widget drag input and blank-image-after-click fix](./archive/261112-2105-widget-drag-input-and-blank-image-after-click-fix/plan.md) | work-item | completed | 2026-11-12 |
 | [Cell-tall native controls so cell-center clicks hit them](./archive/261114-2237-cell-tall-native-controls-so-cell-center-clicks-hit-them/plan.md) | work-item | completed | 2026-11-14 |
+| [RPC mode widget support for A.Y.A.](./archive/261120-1155-rpc-mode-widget-support-for-a-y-a/discovery.md) | work-item | dropped | 2026-11-20 |
 <!-- spec-items:archive:end -->
 
 ## Templates

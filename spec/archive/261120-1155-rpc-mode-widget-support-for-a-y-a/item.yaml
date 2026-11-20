@@ -1,0 +1,13 @@
+schema_version: 2
+id: 261120-1155-rpc-mode-widget-support-for-a-y-a
+title: RPC mode widget support for A.Y.A.
+kind: work-item
+work_type: feature
+parent: null
+route: grill-to-spec
+status: dropped
+superseded_by: null
+created_at: '2026-11-20T11:55:27+01:00'
+updated_at: '2026-11-20T23:22:00+01:00'
+external_refs: []
+wiki_refs: []
